@@ -448,12 +448,12 @@ def main(model, criterion):
     # get/store metric values
 
 print('temperature scaling')
-test_calibration('temperature scaling', 'temperature_scaling_test4')
-print('histogram binning')
-test_calibration('histogram binning', 'temperature_scaling_test4')
-print('isotonic regression')
-test_calibration('isotonic regression', 'temperature_scaling_test4')
-print('beta calibration')
-test_calibration('beta calibration', 'temperature_scaling_test4')
+test_calibration('temperature scaling', 'temperature_scaling_test6')
+# print('histogram binning')
+# test_calibration('histogram binning', 'temperature_scaling_test4')
+# print('isotonic regression')
+# test_calibration('isotonic regression', 'temperature_scaling_test4')
+# print('beta calibration')
+# test_calibration('beta calibration', 'temperature_scaling_test4')
 
 
