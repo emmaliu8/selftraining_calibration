@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 from torch import nn
@@ -7,9 +8,10 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import calibration_curve
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from torch.utils.data import DataLoader
 
-from data_setup import create_dataset, split_datasets, load_imdb_dataset, dataset_metrics
+from data_setup import create_dataset, split_datasets, load_imdb_dataset, dataset_metrics, TextDataset, get_dataset_from_dataloader
 from extract_features import featurize_dataset
 from model_training import model_training, get_model_predictions
 from calibration import plot_calibration_curve, calibrate_temperature_scaling, TemperatureScaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration
@@ -56,10 +58,10 @@ def test_calibration(calibration_method, folder_name):
     model = TextClassificationModel(768, 2)
     model = model_training(model, device, 100, train_dataloader, criterion)
 
-    methods = {'histogram binning': calibrate_histogram_binning, 'isotonic regression': calibrate_isotonic_regression, 'beta calibration': calibrate_beta_calibration, 'temperature scaling': calibrate_temperature_scaling}
+    methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling}
     calibration_class = methods[calibration_method](validation_dataloader, device, model)
 
-    if calibration_method == 'temperature scaling':
+    if calibration_method == 'temp_scaling':
         print('T for temperature scaling')
         print(calibration_class.temp)
 
@@ -68,30 +70,30 @@ def test_calibration(calibration_method, folder_name):
     train_accuracy = accuracy_score(train_true_labels, train_predicted_labels)
     print('Train accuracy: ', train_accuracy)
 
-    plot_calibration_curve(train_true_labels, train_post_softmax_probs, folder_name + '/temp_scaling_train_initial_calibration.jpg')
-
+    plot_calibration_curve(train_true_labels, train_post_softmax_probs, folder_name + '/' + calibration_method + '_train_initial_calibration.jpg')
+    
     # recalibrate and examine new calibration on train set
-    if calibration_method == 'temperature scaling':
+    if calibration_method == 'temp_scaling':
         calibrated_train_probs = calibration_class.predict(train_pre_softmax_probs)
     else:
         calibrated_train_probs = calibration_class.predict(train_predicted_probs)
-    plot_calibration_curve(train_true_labels, calibrated_train_probs, folder_name + '/temp_scaling_train_after_calibration.jpg')
+    plot_calibration_curve(train_true_labels, calibrated_train_probs, folder_name + '/' + calibration_method + '_train_after_calibration.jpg')
 
     # examine calibration on test set
     test_pre_softmax_probs, test_post_softmax_probs, test_predicted_probs, test_predicted_labels, test_true_labels = get_model_predictions(test_dataloader, device, model)
     test_accuracy = accuracy_score(test_true_labels, test_predicted_labels)
     print('Test accuracy: ', test_accuracy)
 
-    plot_calibration_curve(test_true_labels, test_post_softmax_probs, folder_name + '/temp_scaling_test_initial_calibration.jpg')
+    plot_calibration_curve(test_true_labels, test_post_softmax_probs, folder_name + '/' + calibration_method + '_test_initial_calibration.jpg')
 
     # recalibrate and examine new calibration on test set
-    if calibration_method == 'temperature scaling':
+    if calibration_method == 'temp_scaling':
         calibrated_test_probs = calibration_class.predict(test_pre_softmax_probs)
     else:
         calibrated_test_probs = calibration_class.predict(test_predicted_probs)
-    plot_calibration_curve(test_true_labels, calibrated_test_probs, folder_name + '/temp_scaling_test_after_calibration.jpg')
+    plot_calibration_curve(test_true_labels, calibrated_test_probs, folder_name + '/' + calibration_method + '_test_after_calibration.jpg')
 
-def main(model, criterion):
+def main(model, criterion, recalibration_method, folder_name):
 
     # reproducible
     torch.manual_seed(0)
@@ -100,6 +102,11 @@ def main(model, criterion):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train, unlabeled, test = load_imdb_dataset('../')
+
+    # for testing purposes
+    # train = train[0][:100], train[1][:100]
+    # unlabeled = unlabeled[0][:100], unlabeled[1][:100]
+    # test = test[0][:100], test[1][:100]
 
     # split datasets to get validation and updated train and unlabeled sets
     (train_text, train_labels), (validation_text, validation_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels) = split_datasets(train, test, unlabeled, labeled_percentage, validation_percentage)
@@ -116,7 +123,7 @@ def main(model, criterion):
     unlabeled_dataloader = featurize_dataset(unlabeled_dataset, device, batch_size)
     validation_dataloader = featurize_dataset(validation_dataset, device, batch_size)
 
-    # metrics 
+    # metrics - also generate plots w/ probabilty distributions and calibration curves for each iteration
     accuracy = []
     precision = []
     recall = []
@@ -133,40 +140,134 @@ def main(model, criterion):
         model = model_training(model, device, num_epochs, train_dataloader, criterion)
 
         # predictions on test set
-        pre_softmax_probs, post_softmax_probs, predicted_labels, true_labels = get_model_predictions(test_dataloader, device, model)
+        pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels = get_model_predictions(test_dataloader, device, model)
 
         # check calibration
-        classifier_probs_all = post_softmax_probs
-        classifier_probs = post_softmax_probs[:,1]
-        c_prob_true, c_prob_pred = calibration_curve(true_labels, classifier_probs, n_bins=10) # import calibration curve from somewhere else???
-
-        # plot calibration curve
+        ece, _, _, _, _ = plot_calibration_curve(true_labels, post_softmax_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_initial_calibration.jpg')
 
         # update metrics
+        accuracy.append(accuracy_score(true_labels, predicted_labels))
+        precision.append(precision_score(true_labels, predicted_labels))
+        recall.append(recall_score(true_labels, predicted_labels))
+        f1.append(f1_score(true_labels, predicted_labels))
+        # auc_roc.append(roc_auc_score(true_labels, predicted_probs))
+        training_data_size.append(len(train_dataset))
+        expected_calibration_errors.append(ece)
 
         # recalibrate 
-        T = calibrate_temperature_scaling(validation_dataloader, device, model)
+        methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling}
+        calibration_class = methods[recalibration_method](validation_dataloader, device, model)
+
+        if recalibration_method == 'temp_scaling':
+            Ts.append(calibration_class.temp)
+            calibrated_probs = calibration_class.predict(pre_softmax_probs)
+        else:
+            calibrated_probs = calibration_class.predict(predicted_probs)
 
         # plot new calibration curve
+        ece, _, _, _, _ = plot_calibration_curve(true_labels, calibrated_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_after_calibration.jpg')
 
         # update metrics for after recalibration
+        expected_calibration_errors_recalibration.append(ece)
 
-        # predictions on unlabeled
-        pre_softmax_probs, post_softmax_probs, predicted_labels, true_labels = get_model_predictions(unlabeled_dataloader, device, model)
+        def unlabeled_samples_to_train(train_dataloader, unlabeled_dataloader, recalibration_method, calibration_class):
+            unlabeled_texts = [] # inputs that will remain in unlabeled set
+            unlabeled_to_train_texts = []
+            unlabeled_to_train_labels = []     
 
-        # add new samples to training data based on unlabeled predictions
+            model.eval()
+
+            with torch.no_grad():
+                for (_, batch) in enumerate(unlabeled_dataloader):
+                    inputs = batch['Text'].to(device)
+
+                    pre_softmax = model(inputs) 
+
+                    # Get softmax values for net input and resulting class predictions
+                    sm = nn.Softmax(dim=1)
+                    post_softmax = sm(pre_softmax)
+
+                    predicted_prob, predicted_label = torch.max(post_softmax.data, 1)
+
+                    if recalibration_method == 'temp_scaling':
+                        unlabeled_calibrated_probs = calibration_class.predict(pre_softmax.cpu().numpy())
+                        unlabeled_calibrated_probs = np.max(unlabeled_calibrated_probs, axis=1)
+                    else:
+                        unlabeled_calibrated_probs = calibration_class.predict(predicted_prob.cpu().numpy())
+                    
+                    unlabeled_inputs = pd.DataFrame(np.array(inputs.cpu()))
+
+                    df = pd.DataFrame([])
+                    df['predicted_labels'] = predicted_label.cpu()
+                    df['predicted_probs'] = unlabeled_calibrated_probs
+
+                    high_prob = df.loc[df['predicted_probs'] > threshold]
+                    temp = np.array(unlabeled_inputs.drop(index=high_prob.index))
+
+                    unlabeled_texts.append(temp)
+                    temp2 = np.array(unlabeled_inputs.loc[high_prob.index])
+
+                    unlabeled_to_train_texts.append(temp2)
+                    temp3 = df['predicted_labels'].loc[high_prob.index]
+
+                    unlabeled_to_train_labels.extend(df['predicted_labels'].loc[high_prob.index].tolist())
+
+
+            num_samples_added_to_train = len(unlabeled_to_train_labels)
+            unlabeled_to_train_labels = np.array(unlabeled_to_train_labels)
+            unlabeled_to_train_texts = np.concatenate(unlabeled_to_train_texts)
+            unlabeled_texts = np.concatenate(unlabeled_texts)
+
+            unlabeled_dataloader = DataLoader(TextDataset(unlabeled_texts, np.full((unlabeled_texts.shape[0], 1), -1)), batch_size=batch_size)
+
+            train_text, train_labels = get_dataset_from_dataloader(train_dataloader, device)
+            train_text = np.concatenate((train_text, unlabeled_to_train_texts))
+            train_labels.extend(unlabeled_to_train_labels)
+            train_dataloader = DataLoader(TextDataset(train_text, train_labels), batch_size=batch_size)
+
+            return train_dataloader, unlabeled_dataloader, num_samples_added_to_train
+        
+        train_dataloader, unlabeled_dataloader, num_samples_added_to_train = unlabeled_samples_to_train(train_dataloader, unlabeled_dataloader, recalibration_method, calibration_class)
+
+        # check for end conditions (no more unlabeled data OR no new samples added to training)
+        # if len(unlabeled_dataloader) == 0 -> break
+        if len(unlabeled_dataloader.dataset) == 0:
+            print('No more unlabeled data')
+            print('Exited on iteration ', i)
+            break
+        if num_samples_added_to_train == 0:
+            print('No more samples with high enough confidence')
+            print('Exited on iteration ', i)
+            break
 
     # plot metrics
+    plt.figure()
+    plt.plot(accuracy, color='red', label='accuracy')
+    plt.plot(precision, color='blue', label='precision')
+    plt.plot(recall, color='green', label='recall')
+    plt.plot(f1, color='orange', label='f1')
+    plt.plot(auc_roc, color='purple', label='auc_roc')
+    plt.plot(expected_calibration_errors, color='yellow', label='expected_calibration')
+    plt.plot(expected_calibration_errors_recalibration, color='pink', label='expected_calibration_recalibration')
+    plt.legend()
+    plt.savefig(folder_name + '/' + recalibration_method + '_metrics.jpg')
+
+    plt.figure()
+    plt.plot(training_data_size)
+    plt.savefig(folder_name + '/' + recalibration_method + '_trainingdatasize.jpg')
 
     # get/store metric values
 
-print('temperature scaling')
-test_calibration('temperature scaling', 'temperature_scaling_test6')
+# testing calibration
+# print('temperature scaling')
+# test_calibration('temp_scaling', 'temperature_scaling_test7')
 # print('histogram binning')
-# test_calibration('histogram binning', 'temperature_scaling_test4')
+# test_calibration('histogram_binning', 'temperature_scaling_test7')
 # print('isotonic regression')
-# test_calibration('isotonic regression', 'temperature_scaling_test4')
+# test_calibration('isotonic_regression', 'temperature_scaling_test7')
 # print('beta calibration')
-# test_calibration('beta calibration', 'temperature_scaling_test4')
+# test_calibration('beta_calibration', 'temperature_scaling_test7')
 
+model = TextClassificationModel(768, 2)
+main(model, criterion, 'temp_scaling', 'self_training_test1')
 

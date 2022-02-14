@@ -1,4 +1,5 @@
 from torch.utils.data import Dataset
+import torch 
 import random
 import os 
 import numpy as np
@@ -132,5 +133,18 @@ def dataset_metrics(dataset):
 
     return num_samples, num_classes, label_distribution, average_words_per_sample, word_distribution
 
+def get_dataset_from_dataloader(dataloader, device):
+    texts = []
+    labels = []
 
+    with torch.no_grad():
+        for (_, batch) in enumerate(dataloader):
+            inputs, outputs = batch['Text'].to(device), batch['Class'].to(device)
+
+            texts.append(inputs)
+            labels.extend(outputs.cpu().numpy())
+        
+        texts = torch.cat(texts).cpu().numpy()
+    
+    return texts, labels
 

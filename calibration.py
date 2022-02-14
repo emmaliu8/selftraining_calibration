@@ -90,7 +90,6 @@ class TemperatureScaling():
         Returns:
             the results of optimizer after minimizing is finished.
         """
-        print('fitting temperature scaling')
         true = true.flatten() # Flatten y_val
         opt = minimize(self._loss_fun, x0 = 1, args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
         self.temp = opt.x[0]
