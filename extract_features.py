@@ -33,7 +33,7 @@ def tokenize_and_features(text, device):
     features = outputs[0][:, 0, :].cpu().numpy()
     return features
 
-def featurize_dataset(dataset, device, batch_size):
+def featurize_dataset(dataset, device, batch_size, file_name = None):
     text_dataloader = DataLoader(dataset, batch_size=batch_size)
     features = None
 
@@ -45,5 +45,11 @@ def featurize_dataset(dataset, device, batch_size):
             features = np.concatenate((features, new_features), axis=0)
     
     features_dataset = TextDataset(features, dataset.get_labels())
+
+    # save dataset to file
+    if file_name is not None:
+        torch.save(features, 'features_' + file_name)
+        torch.save(dataset.get_labels(), 'labels_' + file_name)
+
     features_dataloader = DataLoader(features_dataset, batch_size=batch_size)
     return features_dataloader

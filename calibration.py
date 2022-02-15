@@ -185,6 +185,7 @@ class HistogramBinning():
             Calibrated probabilities (shape [samples, classes])
         """
         # Go through all the probs and check what confidence is suitable for it.
+        probs = np.copy(probs)
         for i, prob in enumerate(probs):
             idx = np.searchsorted(self.upper_bounds, prob[0])
             # idx = [element - 1 if element >= len(self.conf) else element for element in idx]
