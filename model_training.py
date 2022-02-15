@@ -3,7 +3,7 @@ import torch.optim as optim
 from torch import nn
 import numpy as np
 
-def model_training(model, device, num_epochs, train_loader, criterion):
+def model_training(model, device, num_epochs, train_loader, criterion, file_name = None):
     model = model.to(device)
     optimizer = optim.SGD(model.parameters(), lr=0.001) # add changing optimizer + parameters used 
 
@@ -24,7 +24,9 @@ def model_training(model, device, num_epochs, train_loader, criterion):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-    
+    if file_name is not None:
+        torch.save(model.state_dict(), file_name)
+
     return model
 
 def get_model_predictions(dataloader, device, model):

@@ -28,7 +28,7 @@ num_self_training_iterations = 1000000
 
 criterion = nn.CrossEntropyLoss() # what about log loss?
 
-def test_calibration(calibration_method, folder_name):
+def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None):
     # reproducible
     torch.manual_seed(0)
     np.random.seed(0)
@@ -55,8 +55,14 @@ def test_calibration(calibration_method, folder_name):
     test_dataloader = featurize_dataset(test_dataset, device, batch_size)
     validation_dataloader = featurize_dataset(validation_dataset, device, batch_size)
 
-    model = TextClassificationModel(768, 2)
-    model = model_training(model, device, 100, train_dataloader, criterion)
+    # can save dataloader.dataset
+
+    if load_model:
+        model = TextClassificationModel(768, 2)
+        model.load_state_dict(torch.load(load_model_path))
+    else:
+        model = TextClassificationModel(768, 2)
+        model = model_training(model, device, 100, train_dataloader, criterion, 'test_calibration_model.pt')
 
     methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling}
     calibration_class = methods[calibration_method](validation_dataloader, device, model)
@@ -259,8 +265,8 @@ def main(model, criterion, recalibration_method, folder_name):
     # get/store metric values
 
 # testing calibration
-# print('temperature scaling')
-# test_calibration('temp_scaling', 'temperature_scaling_test7')
+print('temperature scaling')
+test_calibration('temp_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt')
 # print('histogram binning')
 # test_calibration('histogram_binning', 'temperature_scaling_test7')
 # print('isotonic regression')
@@ -268,6 +274,6 @@ def main(model, criterion, recalibration_method, folder_name):
 # print('beta calibration')
 # test_calibration('beta_calibration', 'temperature_scaling_test7')
 
-model = TextClassificationModel(768, 2)
-main(model, criterion, 'temp_scaling', 'self_training_test1')
+# model = TextClassificationModel(768, 2)
+# main(model, criterion, 'temp_scaling', 'self_training_test1')
 
