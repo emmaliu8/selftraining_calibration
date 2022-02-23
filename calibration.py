@@ -1,4 +1,3 @@
-from cProfile import label
 from scipy.optimize import minimize 
 from sklearn.metrics import log_loss
 import numpy as np
@@ -122,7 +121,7 @@ class HistogramBinning():
         - predict(probs), this method is used to calibrate the confidences.
     """
     
-    def __init__(self, M=15):
+    def __init__(self, M=50):
         """
         M (int): the number of equal-length bins used
         """
@@ -162,7 +161,6 @@ class HistogramBinning():
             probs: probabilities of data
             true: true labels of data
         """
-
         conf = []
 
         # Got through intervals and add confidence to list
@@ -171,7 +169,6 @@ class HistogramBinning():
             conf.append(temp_conf)
 
         self.conf = conf
-
 
     # Fit based on predicted confidence
     def predict(self, probs):
@@ -210,34 +207,52 @@ class HistogramBinning():
 
 #     return logits_list, labels_list
 
-def calibrate_temperature_scaling(dataloader, device, model):
+def calibrate_temperature_scaling(dataloader, device, model, pre_softmax_probs_predict):
     pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, model)
 
     temperature_scaling = TemperatureScaling()
     temperature_scaling.fit(pre_softmax_probs, true_labels)
-    return temperature_scaling
+    print('T for temperature scaling')
+    print(temperature_scaling.temp)
+    return temperature_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_histogram_binning(dataloader, device, model):
-    _, _, predicted_probs, _, true_labels = get_model_predictions(dataloader, device, model)
+def calibrate_histogram_binning(dataloader, device, model, post_softmax_probs_predict):
+    _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, model)
 
-    histogram_binning = HistogramBinning()
-    histogram_binning.fit(predicted_probs, true_labels)
+    calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
-    return histogram_binning
+    for i in range(post_softmax_probs.shape[1]):
+        histogram_binning = HistogramBinning()
+        y_cal = np.array(true_labels == i, dtype="int")
+        histogram_binning.fit(post_softmax_probs[:, i], y_cal)
+        calibrated_probs_by_class[:, i] = np.squeeze(histogram_binning.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
-def calibrate_isotonic_regression(dataloader, device, model):
-    _, _, predicted_probs, _, true_labels = get_model_predictions(dataloader, device, model)
+    return calibrated_probs_by_class
 
-    isotonic_regression = IsotonicRegression()
-    isotonic_regression.fit(predicted_probs, true_labels)
+def calibrate_isotonic_regression(dataloader, device, model, post_softmax_probs_predict):
+    _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, model)
 
-    return isotonic_regression
+    calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
-def calibrate_beta_calibration(dataloader, device, model):
-    _, _, predicted_probs, _, true_labels = get_model_predictions(dataloader, device, model)
+    for i in range(post_softmax_probs.shape[1]):
+        isotonic_regression = IsotonicRegression()
+        y_cal = np.array(true_labels == i, dtype="int")
+        isotonic_regression.fit(post_softmax_probs[:, i], y_cal)
+        calibrated_probs_by_class[:, i] = np.squeeze(isotonic_regression.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
-    beta_calibration = BetaCalibration()
-    beta_calibration.fit(predicted_probs, true_labels)
+    return calibrated_probs_by_class
 
-    return beta_calibration
+def calibrate_beta_calibration(dataloader, device, model, post_softmax_probs_predict):
+    _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, model)
+
+    calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
+
+    for i in range(post_softmax_probs.shape[1]):
+        beta_calibration = BetaCalibration()
+        y_cal = np.array(true_labels == i, dtype="int")
+        beta_calibration.fit(post_softmax_probs[:, i], y_cal)
+        calibrated_probs_by_class[:, i] = np.squeeze(beta_calibration.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
+
+    return calibrated_probs_by_class
+
 
