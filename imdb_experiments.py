@@ -18,8 +18,8 @@ from calibration import plot_calibration_curve, calibrate_temperature_scaling, T
 from classifiers import TextClassificationModel
 
 # constants
-labeled_percentage = 0.1 # percentage of training data to use as initial set of labeled data (for training)
-validation_percentage = 0.45 # percentage of training data to use as validation set for determining calibration parameters
+labeled_percentage = 0.2 # percentage of training data to use as initial set of labeled data (for training)
+validation_percentage = 0.1 # percentage of training data to use as validation set for determining calibration parameters
 batch_size = 64
 threshold = 0.8 # used to determine which unlabeled examples have high enough confidence
 num_classes = 2 
@@ -36,18 +36,18 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if load_features:
-        train_features = torch.load('features_train_data_testing_calibration.pt')
-        train_labels = torch.load('labels_train_data_testing_calibration.pt')
+        train_features = torch.load('features_train_data.pt')
+        train_labels = torch.load('labels_train_data.pt')
 
-        test_features = torch.load('features_test_data_testing_calibration.pt')
-        test_labels = torch.load('labels_test_data_testing_calibration.pt')
+        test_features = torch.load('features_test_data.pt')
+        test_labels = torch.load('labels_test_data.pt')
 
-        validation_features = torch.load('features_validation_data_testing_calibration.pt')
-        validation_labels = torch.load('labels_validation_data_testing_calibration.pt')
+        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels), labeled_percentage, validation_percentage)
 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
         validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
+        unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
     else:
         train, unlabeled, test = load_imdb_dataset('../')
 
@@ -56,18 +56,21 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         # unlabeled = unlabeled[0][:100], unlabeled[1][:100]
         # test = test[0][:100], test[1][:100]
 
-        # split datasets to get validation and updated train and unlabeled sets
-        (train_text, train_labels), (validation_text, validation_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels) = split_datasets(train, test, unlabeled, 0.1, 0.9)
-
         # create dataset objects for each split
-        train_dataset = create_dataset(train_text, train_labels)
-        validation_dataset = create_dataset(validation_text, validation_labels)
-        test_dataset = create_dataset(test_text, test_labels)
+        train_dataset = create_dataset(train[0], train[1])
+        test_dataset = create_dataset(test[0], test[1])
 
         # extract features and create dataloader for each split
-        train_dataloader = featurize_dataset(train_dataset, device, batch_size, 'train_data_testing_calibration.pt')
-        test_dataloader = featurize_dataset(test_dataset, device, batch_size, 'test_data_testing_calibration.pt')
-        validation_dataloader = featurize_dataset(validation_dataset, device, batch_size, 'validation_data_testing_calibration.pt')
+        train = featurize_dataset(train_dataset, device, batch_size, 'train_data.pt')
+        test = featurize_dataset(test_dataset, device, batch_size, 'test_data.pt')
+
+        # split datasets to get validation and updated train and unlabeled sets
+        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test, unlabeled, labeled_percentage, validation_percentage)
+
+        train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
+        test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
+        validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
+        unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
 
     if load_model:
         model = TextClassificationModel(768, 2)
@@ -119,18 +122,17 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if load_features: # need to add unlabeled
-        train_features = torch.load('features_train_data_testing_calibration.pt')
-        train_labels = torch.load('labels_train_data_testing_calibration.pt')
+        train_features = torch.load('features_train_data.pt')
+        train_labels = torch.load('labels_train_data.pt')
         train_dataset_size = len(train_labels)
 
-        test_features = torch.load('features_test_data_testing_calibration.pt')
-        test_labels = torch.load('labels_test_data_testing_calibration.pt')
-
-        validation_features = torch.load('features_validation_data_testing_calibration.pt')
-        validation_labels = torch.load('labels_validation_data_testing_calibration.pt')
+        test_features = torch.load('features_test_data.pt')
+        test_labels = torch.load('labels_test_data.pt')
 
         unlabeled_features = torch.load('features_unlabeled_data.pt')
         unlabeled_labels = torch.load('labels_unlabeled_data.pt')
+
+        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels), labeled_percentage, validation_percentage)
 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
@@ -144,22 +146,26 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
         # unlabeled = unlabeled[0][:100], unlabeled[1][:100]
         # test = test[0][:100], test[1][:100]
 
+        # create dataset objects for each split
+        train_dataset = create_dataset(train[0], train[1])
+        test_dataset = create_dataset(test[0], test[1])
+        unlabeled_dataset = create_dataset(unlabeled[0], unlabeled[1])
+
+        # extract features 
+        train = featurize_dataset(train_dataset, device, batch_size, 'train_data.pt')
+        test = featurize_dataset(test_dataset, device, batch_size, 'test_data.pt')
+        unlabeled = featurize_dataset(unlabeled_dataset, device, batch_size, 'unlabeled_data.pt')
+
         # split datasets to get validation and updated train and unlabeled sets
-        (train_text, train_labels), (validation_text, validation_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels) = split_datasets(train, test, unlabeled, labeled_percentage, validation_percentage)
+        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test, unlabeled, labeled_percentage, validation_percentage)
 
         train_dataset_size = len(train_labels)
 
-        # create dataset objects for each split
-        train_dataset = create_dataset(train_text, train_labels)
-        validation_dataset = create_dataset(validation_text, validation_labels)
-        test_dataset = create_dataset(test_text, test_labels)
-        unlabeled_dataset = create_dataset(unlabeled_text, unlabeled_labels)
-
-        # extract features and create dataloader for each split
-        train_dataloader = featurize_dataset(train_dataset, device, batch_size)
-        test_dataloader = featurize_dataset(test_dataset, device, batch_size)
-        unlabeled_dataloader = featurize_dataset(unlabeled_dataset, device, batch_size, 'unlabeled_data.pt')
-        validation_dataloader = featurize_dataset(validation_dataset, device, batch_size)
+        # create dataloaders 
+        train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
+        test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
+        validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
+        unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
 
     # metrics - also generate plots w/ probabilty distributions and calibration curves for each iteration
     accuracy = []
@@ -278,7 +284,6 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
         train_dataset_size += num_samples_added_to_train
 
         # check for end conditions (no more unlabeled data OR no new samples added to training)
-        # if len(unlabeled_dataloader) == 0 -> break
         if num_unlabeled_samples == 0:
             print('No more unlabeled data')
             print('Exited on iteration ', i)
@@ -317,5 +322,5 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
 # test_calibration('beta_calibration', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
 
 model = TextClassificationModel(768, 2)
-main(model, criterion, 'temp_scaling', 'self_training_test2', load_features = True)
+main(model, criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
 
