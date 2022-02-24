@@ -212,8 +212,7 @@ def calibrate_temperature_scaling(dataloader, device, model, pre_softmax_probs_p
 
     temperature_scaling = TemperatureScaling()
     temperature_scaling.fit(pre_softmax_probs, true_labels)
-    print('T for temperature scaling')
-    print(temperature_scaling.temp)
+
     return temperature_scaling.predict(pre_softmax_probs_predict)
 
 def calibrate_histogram_binning(dataloader, device, model, post_softmax_probs_predict):
