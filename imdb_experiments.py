@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from data_setup import create_dataset, split_datasets, load_imdb_dataset, dataset_metrics, TextDataset, get_dataset_from_dataloader
 from extract_features import featurize_dataset
 from model_training import model_training, get_model_predictions
-from calibration import plot_calibration_curve, calibrate_temperature_scaling, TemperatureScaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration
+from calibration import calibrate_platt_scaling, plot_calibration_curve, calibrate_temperature_scaling, TemperatureScaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration
 from classifiers import TextClassificationModel
 
 # constants
@@ -42,7 +42,10 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         test_features = torch.load('features_test_data.pt')
         test_labels = torch.load('labels_test_data.pt')
 
-        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels), labeled_percentage, validation_percentage)
+        unlabeled_features = torch.load('features_unlabeled_data.pt')
+        unlabeled_labels = torch.load('labels_unlabeled_data.pt')
+
+        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels), 0.1, 0.9)
 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
@@ -65,7 +68,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         test = featurize_dataset(test_dataset, device, batch_size, 'test_data.pt')
 
         # split datasets to get validation and updated train and unlabeled sets
-        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test, unlabeled, labeled_percentage, validation_percentage)
+        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test, unlabeled, 0.1, 0.9)
 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
@@ -80,7 +83,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         model = TextClassificationModel(768, 2)
         model = model_training(model, device, 100, train_dataloader, criterion, 'test_calibration_model.pt')
 
-    methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling}
+    methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling, 'platt_scaling': calibrate_platt_scaling}
     calibration_class = methods[calibration_method]
 
     # examine calibration on train set
@@ -199,7 +202,7 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
 
         # recalibrate 
         if calibrate:
-            methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling}
+            methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling, 'platt_scaling': calibrate_platt_scaling}
             calibration_class = methods[recalibration_method]
 
             if recalibration_method == 'temp_scaling':
@@ -314,13 +317,15 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
 # testing calibration
 # print('temperature scaling')
 # test_calibration('temp_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('histogram binning')
-# test_calibration('histogram_binning', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+print('histogram binning')
+test_calibration('histogram_binning', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
 # print('isotonic regression')
 # test_calibration('isotonic_regression', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
 # print('beta calibration')
 # test_calibration('beta_calibration', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+# print('platt scaling')
+# test_calibration('platt_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
 
-model = TextClassificationModel(768, 2)
-main(model, criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
+# model = TextClassificationModel(768, 2)
+# main(model, criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
 

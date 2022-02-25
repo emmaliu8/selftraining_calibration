@@ -191,6 +191,33 @@ class HistogramBinning():
 
         return probs
 
+class PlattScaling():
+    def __init__(self, a = 1, b = 0, maxiter = 200, solver = "BFGS"):
+        self.a = a
+        self.b = b
+        self.maxiter = maxiter
+        self.solver = solver
+
+    def _loss_fun(self, x, probs, true):
+        # Calculates the loss using log-loss (cross-entropy loss)
+        scaled_probs = self.predict(probs, x[0], x[1])    
+        loss = log_loss(y_true=true, y_pred=scaled_probs)
+        return loss
+
+    def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
+        true = true.flatten()
+        opt = minimize(self._loss_fun, x0 = [1, 0], args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
+        self.a = opt.x[0]
+        self.b = opt.x[1]
+        
+        return opt
+
+    def predict(self, logits, a = None, b = None):
+        if not a or not b:
+            return softmax(self.a * logits + self.b)
+        else:
+            return softmax(a * logits + b)
+
 # def get_probs_and_labels(dataloader, device, model):
 #     logits_list = []
 #     labels_list = []
@@ -234,7 +261,7 @@ def calibrate_isotonic_regression(dataloader, device, model, post_softmax_probs_
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
     for i in range(post_softmax_probs.shape[1]):
-        isotonic_regression = IsotonicRegression()
+        isotonic_regression = IsotonicRegression(out_of_bounds='clip')
         y_cal = np.array(true_labels == i, dtype="int")
         isotonic_regression.fit(post_softmax_probs[:, i], y_cal)
         calibrated_probs_by_class[:, i] = np.squeeze(isotonic_regression.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
@@ -254,4 +281,10 @@ def calibrate_beta_calibration(dataloader, device, model, post_softmax_probs_pre
 
     return calibrated_probs_by_class
 
+def calibrate_platt_scaling(dataloader, device, model, pre_softmax_probs_predict):
+    pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, model)
 
+    platt_scaling = PlattScaling()
+    platt_scaling.fit(pre_softmax_probs, true_labels)
+
+    return platt_scaling.predict(pre_softmax_probs_predict)
