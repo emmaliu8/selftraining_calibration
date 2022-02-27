@@ -92,7 +92,6 @@ class TemperatureScaling():
         true = true.flatten() # Flatten y_val
         opt = minimize(self._loss_fun, x0 = 1, args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
         self.temp = opt.x[0]
-        
         return opt
         
     def predict(self, logits, temp = None):
@@ -191,6 +190,9 @@ class HistogramBinning():
 
         return probs
 
+class EqualFreqBinning():
+    pass
+
 class PlattScaling():
     def __init__(self, a = 1, b = 0, maxiter = 200, solver = "BFGS"):
         self.a = a
@@ -206,10 +208,9 @@ class PlattScaling():
 
     def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
         true = true.flatten()
-        opt = minimize(self._loss_fun, x0 = [1, 0], args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
+        opt = minimize(self._loss_fun, x0 = [0.55, 0], args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
         self.a = opt.x[0]
         self.b = opt.x[1]
-        
         return opt
 
     def predict(self, logits, a = None, b = None):

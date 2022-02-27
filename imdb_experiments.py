@@ -94,7 +94,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
     plot_calibration_curve(train_true_labels, train_post_softmax_probs, folder_name + '/' + calibration_method + '_train_initial_calibration.jpg')
 
     # recalibrate and examine new calibration on train set
-    if calibration_method == 'temp_scaling':
+    if calibration_method in ('temp_scaling', 'platt_scaling'):
         calibrated_train_probs = calibration_class(validation_dataloader, device, model, train_pre_softmax_probs)
     else:
         calibrated_train_probs = calibration_class(validation_dataloader, device, model, train_post_softmax_probs)
@@ -109,7 +109,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
     plot_calibration_curve(test_true_labels, test_post_softmax_probs, folder_name + '/' + calibration_method + '_test_initial_calibration.jpg')
 
     # recalibrate and examine new calibration on test set
-    if calibration_method == 'temp_scaling':
+    if calibration_method in ('temp_scaling', 'platt_scaling'):
         calibrated_test_probs = calibration_class(validation_dataloader, device, model, test_pre_softmax_probs)
     else:
         calibrated_test_probs = calibration_class(validation_dataloader, device, model, test_post_softmax_probs)
@@ -205,7 +205,7 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
             methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling, 'platt_scaling': calibrate_platt_scaling}
             calibration_class = methods[recalibration_method]
 
-            if recalibration_method == 'temp_scaling':
+            if recalibration_method in ('temp_scaling', 'platt_scaling'):
                 calibrated_probs = calibration_class(validation_dataloader, device, model, pre_softmax_probs)
             else:
                 calibrated_probs = calibration_class(validation_dataloader, device, model, post_softmax_probs)
@@ -237,7 +237,7 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
 
                     predicted_prob, predicted_label = torch.max(post_softmax.data, 1)
                     if calibrate:
-                        if recalibration_method == 'temp_scaling':
+                        if recalibration_method in ('temp_scaling', 'platt_scaling'):
                             unlabeled_calibrated_probs = calibration_class(validation_dataloader, device, model, pre_softmax.cpu().numpy())
 
                         else:
@@ -315,16 +315,16 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
     # get/store metric values
 
 # testing calibration
-# print('temperature scaling')
-# test_calibration('temp_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-print('histogram binning')
-test_calibration('histogram_binning', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+print('temperature scaling')
+test_calibration('temp_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+# print('histogram binning')
+# test_calibration('histogram_binning', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
 # print('isotonic regression')
 # test_calibration('isotonic_regression', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
 # print('beta calibration')
 # test_calibration('beta_calibration', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('platt scaling')
-# test_calibration('platt_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+print('platt scaling')
+test_calibration('platt_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
 
 # model = TextClassificationModel(768, 2)
 # main(model, criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
