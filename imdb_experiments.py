@@ -13,8 +13,8 @@ from torch.utils.data import DataLoader
 
 from data_setup import create_dataset, split_datasets, load_imdb_dataset, dataset_metrics, TextDataset, get_dataset_from_dataloader
 from extract_features import featurize_dataset
-from model_training import model_training, get_model_predictions
-from calibration import calibrate_platt_scaling, plot_calibration_curve, calibrate_temperature_scaling, TemperatureScaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration, calibrate_equal_freq_binning, calibrate_bbq, calibrate_ensemble_temperature_scaling, calibrate_enir, calibrate_platt_binner
+from model_training import model_training, get_model_predictions, get_aggregate_model_predictions
+from calibration import calibrate_platt_scaling, plot_calibration_curve, calibrate_temperature_scaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration, calibrate_equal_freq_binning, calibrate_bbq, calibrate_ensemble_temperature_scaling, calibrate_enir, calibrate_platt_binner
 from classifiers import TextClassificationModel
 
 # constants
@@ -32,7 +32,7 @@ criterion = nn.CrossEntropyLoss() # what about log loss?
 def tune_model():
     pass
 
-def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False):
+def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False, platt_label_smoothing = False):
     # reproducible
     torch.manual_seed(0)
     np.random.seed(0)
@@ -99,9 +99,9 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
 
     # recalibrate and examine new calibration on train set
     if calibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling', 'platt_binning'):
-        calibrated_train_probs = calibration_class(validation_dataloader, device, model, train_pre_softmax_probs)
+        calibrated_train_probs = calibration_class(validation_dataloader, device, model, train_pre_softmax_probs, platt_label_smoothing)
     else:
-        calibrated_train_probs = calibration_class(validation_dataloader, device, model, train_post_softmax_probs)
+        calibrated_train_probs = calibration_class(validation_dataloader, device, model, train_post_softmax_probs, platt_label_smoothing)
 
     plot_calibration_curve(train_true_labels, calibrated_train_probs, folder_name + '/' + calibration_method + '_train_after_calibration.jpg')
 
@@ -114,13 +114,13 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
 
     # recalibrate and examine new calibration on test set
     if calibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling', 'platt_binning'):
-        calibrated_test_probs = calibration_class(validation_dataloader, device, model, test_pre_softmax_probs)
+        calibrated_test_probs = calibration_class(validation_dataloader, device, model, test_pre_softmax_probs, platt_label_smoothing)
     else:
-        calibrated_test_probs = calibration_class(validation_dataloader, device, model, test_post_softmax_probs)
+        calibrated_test_probs = calibration_class(validation_dataloader, device, model, test_post_softmax_probs, platt_label_smoothing)
 
     plot_calibration_curve(test_true_labels, calibrated_test_probs, folder_name + '/' + calibration_method + '_test_after_calibration.jpg')
 
-def main(model, criterion, recalibration_method, folder_name, load_features = False, calibrate = True):
+def main(models, criterion, recalibration_method, folder_name, load_features = False, calibrate = True, platt_label_smoothing = False):
 
     # reproducible
     torch.manual_seed(0)
@@ -187,10 +187,14 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
     for i in range(num_self_training_iterations):
 
         # ensure new model for each iteration
-        model = model_training(model, device, num_epochs, train_dataloader, criterion)
+        for i in range(len(models)):
+            models[i] = model_training(models[i], device, num_epochs, train_dataloader, criterion)
 
         # predictions on test set
-        pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels = get_model_predictions(test_dataloader, device, model)
+        if len(models) == 1:
+            pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels = get_model_predictions(test_dataloader, device, models[0])
+        else:
+            pass
 
         # check calibration
         ece, _, _, _, _ = plot_calibration_curve(true_labels, post_softmax_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_initial_calibration.jpg')
@@ -210,9 +214,15 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
             calibration_class = methods[recalibration_method]
 
             if recalibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling', 'platt_binning'):
-                calibrated_probs = calibration_class(validation_dataloader, device, model, pre_softmax_probs)
+                if len(models) == 1:
+                    calibrated_probs = calibration_class(validation_dataloader, device, models[0], pre_softmax_probs, platt_label_smoothing)
+                else:
+                    pass
             else:
-                calibrated_probs = calibration_class(validation_dataloader, device, model, post_softmax_probs)
+                if len(models) == 1:
+                    calibrated_probs = calibration_class(validation_dataloader, device, models[0], post_softmax_probs, platt_label_smoothing)
+                else:
+                    pass
 
             # plot new calibration curve
             ece, _, _, _, _ = plot_calibration_curve(true_labels, calibrated_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_after_calibration.jpg')
@@ -222,7 +232,7 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
         else:
             calibration_class = None
 
-        def unlabeled_samples_to_train(train_dataloader, unlabeled_dataloader, recalibration_method, calibration_class):
+        def unlabeled_samples_to_train(model, train_dataloader, unlabeled_dataloader, recalibration_method, calibration_class):
             unlabeled_texts = [] # inputs that will remain in unlabeled set
             unlabeled_to_train_texts = []
             unlabeled_to_train_labels = []     
@@ -242,10 +252,10 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
                     predicted_prob, predicted_label = torch.max(post_softmax.data, 1)
                     if calibrate:
                         if recalibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling', 'platt_binning'):
-                            unlabeled_calibrated_probs = calibration_class(validation_dataloader, device, model, pre_softmax.cpu().numpy())
+                            unlabeled_calibrated_probs = calibration_class(validation_dataloader, device, model, pre_softmax.cpu().numpy(), platt_label_smoothing)
 
                         else:
-                            unlabeled_calibrated_probs = calibration_class(validation_dataloader, device, model, post_softmax.cpu().numpy())
+                            unlabeled_calibrated_probs = calibration_class(validation_dataloader, device, model, post_softmax.cpu().numpy(), platt_label_smoothing)
  
                         unlabeled_calibrated_probs = np.max(unlabeled_calibrated_probs, axis=1)
                     
@@ -286,7 +296,10 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
 
             return train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples
         
-        train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(train_dataloader, unlabeled_dataloader, recalibration_method, calibration_class)
+        if len(models) == 1:
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models[0], train_dataloader, unlabeled_dataloader, recalibration_method, calibration_class)
+        else:
+            pass
 
         train_dataset_size += num_samples_added_to_train
 
@@ -319,27 +332,27 @@ def main(model, criterion, recalibration_method, folder_name, load_features = Fa
     # get/store metric values
 
 # testing calibration
-# print('temperature scaling')
-# test_calibration('temp_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('histogram binning')
-# test_calibration('histogram_binning', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('isotonic regression')
-# test_calibration('isotonic_regression', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('beta calibration')
-# test_calibration('beta_calibration', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('platt scaling')
-# test_calibration('platt_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('equal_freq_binning')
-# test_calibration('equal_freq_binning', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
-# print('ensemble_temperature_scaling')
-# test_calibration('ensemble_temperature_scaling', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+print('temperature scaling')
+test_calibration('temp_scaling', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
+print('histogram binning')
+test_calibration('histogram_binning', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
+print('isotonic regression')
+test_calibration('isotonic_regression', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
+print('beta calibration')
+test_calibration('beta_calibration', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
+print('platt scaling')
+test_calibration('platt_scaling', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
+print('equal_freq_binning')
+test_calibration('equal_freq_binning', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
+print('ensemble_temperature_scaling')
+test_calibration('ensemble_temperature_scaling', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
 print('bbq')
-test_calibration('bbq', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+test_calibration('bbq', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
 print('enir')
-test_calibration('enir', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+test_calibration('enir', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
 print('platt_binning')
-test_calibration('platt_binning', 'temperature_scaling_test8', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True)
+test_calibration('platt_binning', 'temperature_scaling_test9', load_model = True, load_model_path = 'test_calibration_model.pt', load_features = True, platt_label_smoothing = True)
 
 # model = TextClassificationModel(768, 2)
-# main(model, criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
+# main([model], criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
 
