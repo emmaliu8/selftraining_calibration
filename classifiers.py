@@ -2,13 +2,12 @@ from torch import nn
 
 class TextClassificationModel(nn.Module):
 
-    def __init__(self, embed_dim, num_class):
+    def __init__(self, embed_dim, num_class, initrange=0.5):
         super(TextClassificationModel, self).__init__()
         self.fc = nn.Linear(embed_dim, num_class)
-        self.init_weights()
+        self.init_weights(initrange)
 
-    def init_weights(self):
-        initrange = 0.5
+    def init_weights(self, initrange):
         self.fc.weight.data.uniform_(-initrange, initrange)
         self.fc.bias.data.zero_()
 

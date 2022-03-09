@@ -66,7 +66,7 @@ def get_model_predictions(dataloader, device, model):
     return pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels
 
 
-def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=False, use_post_softmax=False):
+def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=False, use_post_softmax=False, unlabeled=False):
     all_pre_softmax_probs = []
     all_post_softmax_probs = []
     all_predicted_probs = []
@@ -78,7 +78,7 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
         predicted_probs = []
         get_true_labels = False
 
-        if true_labels is None: # need to get true_labels once (same for all models)
+        if true_labels is None and not unlabeled: # need to get true_labels once (same for all models)
             true_labels = []
             get_true_labels = True
 
@@ -86,7 +86,10 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
 
         with torch.no_grad():
             for (_, batch) in enumerate(dataloader):
-                inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
+                if unlabeled:
+                    inputs = batch['Text'].to(device)
+                else:
+                    inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
 
                 pre_softmax = model(inputs)
 
@@ -103,9 +106,9 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
                     true_labels.extend(labels.cpu().numpy())
 
     
-        pre_softmax_probs = torch.cat(pre_softmax_probs).cpu().numpy()
-        post_softmax_probs = torch.cat(post_softmax_probs).cpu().numpy()
-        predicted_probs = np.array(predicted_probs).reshape(-1, 1)
+        pre_softmax_probs = torch.cat(pre_softmax_probs)
+        post_softmax_probs = torch.cat(post_softmax_probs)
+        predicted_probs = torch.tensor(np.array(predicted_probs).reshape(-1, 1))
 
         if get_true_labels:
             true_labels = np.array(true_labels)
@@ -115,22 +118,22 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
         all_predicted_probs.append(predicted_probs)
     
     # average pre_softmax, post_softmax, predicted probs
-    aggregate_pre_softmax_probs = torch.mean(torch.stack(all_pre_softmax_probs))
+    aggregate_pre_softmax_probs = torch.mean(torch.stack(all_pre_softmax_probs), dim=0)
     sm = nn.Softmax(dim=1)
     aggregate_post_softmax_probs_from_pre = sm(aggregate_pre_softmax_probs)
     aggregate_predicted_probs_from_pre, aggregate_predicted_labels_from_pre = torch.max(aggregate_post_softmax_probs_from_pre.data, 1)
 
-    aggregate_post_softmax_probs = torch.mean(torch.stack(all_post_softmax_probs))
+    aggregate_post_softmax_probs = torch.mean(torch.stack(all_post_softmax_probs), dim=0)
     aggregate_predicted_probs_from_post, aggregate_predicted_labels_from_post = torch.max(aggregate_post_softmax_probs.data, 1)
 
     # get predicted_labels 
-    aggregate_predicted_probs = torch.mean(torch.stack(all_predicted_probs))
+    aggregate_predicted_probs = torch.mean(torch.stack(all_predicted_probs), dim=0)
     _, aggregate_predicted_labels_from_predicted = torch.max(aggregate_predicted_probs.data, 1)
 
     if use_pre_softmax:
-        return aggregate_pre_softmax_probs, aggregate_post_softmax_probs_from_pre, aggregate_predicted_probs_from_pre, aggregate_predicted_labels_from_pre, true_labels
+        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs_from_pre.cpu().numpy(), aggregate_predicted_probs_from_pre.cpu().numpy(), aggregate_predicted_labels_from_pre.cpu().numpy(), true_labels
     elif use_post_softmax:
-        return aggregate_pre_softmax_probs, aggregate_post_softmax_probs, aggregate_predicted_probs_from_post, aggregate_predicted_labels_from_post, true_labels
+        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs_from_post.cpu().numpy(), aggregate_predicted_labels_from_post.cpu().numpy(), true_labels
     else:
-        return aggregate_pre_softmax_probs, aggregate_post_softmax_probs, aggregate_predicted_probs, aggregate_predicted_labels_from_predicted, true_labels
+        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs.cpu().numpy(), aggregate_predicted_labels_from_predicted.cpu().numpy(), true_labels
 
