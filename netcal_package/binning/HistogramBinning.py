@@ -163,6 +163,7 @@ class HistogramBinning(AbstractCalibration):
                              "This is a fatal error at this point. Check your implementation.")
 
         # calculate 'matched' (0 or 1)
+        prediction = np.full(X.shape[0], np.unique(y)[1])
         matched = prediction == y
         X = np.clip(X, self.epsilon, 1.-self.epsilon)
 

@@ -1,15 +1,14 @@
-from math import gamma
-from re import I, S
-from scipy.optimize import minimize 
+from scipy.optimize import minimize, minimize_scalar
 from sklearn.metrics import log_loss
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LinearRegression
+# import statsmodels.discrete.discrete_model as sm
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt 
 from sklearn.isotonic import IsotonicRegression
-from betacal import BetaCalibration
+# from betacal import BetaCalibration
 import bisect
 from typing import List, TypeVar
 
@@ -96,6 +95,115 @@ def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum(axis=1, keepdims=1)
 
+class LogitRegression(LinearRegression):
+    '''
+    from https://stackoverflow.com/questions/44234682/how-to-use-sklearn-when-target-variable-is-a-proportion
+    '''
+
+    def fit(self, x, p):
+        p = np.asarray(p)
+        y = np.log(p / (1 - p))
+        return super().fit(x, y)
+
+    def predict(self, x):
+        y = super().predict(x)
+        return 1 / (np.exp(-y) + 1)
+
+def new_cross_entropy_loss(probs, true, epsilon=1e-12):
+    # loss0 = -sum([true[i]*np.log(probs[i][0]) for i in range(len(true))]) / len(true)
+    # loss1 = -sum([true[i]*np.log(probs[i][1]) for i in range(len(true))]) / len(true)
+    # return (loss0 + loss1) / 2.0
+
+    # temp_probs0 = np.clip(probs[:, 0], epsilon, 1. - epsilon)
+    # N = temp_probs0.shape[0]
+    # ce0 = -np.sum(true*np.log(temp_probs0+1e-9))/N
+    
+
+    # temp_probs1 = np.clip(probs[:, 1], epsilon, 1. - epsilon)
+    # N = temp_probs1.shape[0]
+    # ce1 = -np.sum(true*np.log(temp_probs1+1e-9))/N
+    # return (ce0 + ce1) / 2.0
+
+    loss = torch.nn.CrossEntropyLoss()
+    return loss(torch.tensor(probs), torch.tensor(true)).cpu()
+
+def _weighted_sum(sample_score, sample_weight, normalize=False):
+    if normalize:
+        return np.average(sample_score, weights=sample_weight)
+    elif sample_weight is not None:
+        return np.dot(sample_score, sample_weight)
+    else:
+        return sample_score.sum()
+
+def temp_log_loss(y_true, y_pred):
+    # y_pred = check_array(y_pred, ensure_2d=False)
+    # check_consistent_length(y_pred, y_true, sample_weight)
+
+    # lb = LabelBinarizer()
+
+    # if labels is not None:
+    #     lb.fit(labels)
+    # else:
+    #     lb.fit(y_true)
+
+    # if len(lb.classes_) == 1:
+    #     if labels is None:
+    #         raise ValueError(
+    #             "y_true contains only one label ({0}). Please "
+    #             "provide the true labels explicitly through the "
+    #             "labels argument.".format(lb.classes_[0])
+    #         )
+    #     else:
+    #         raise ValueError(
+    #             "The labels array needs to contain at least two "
+    #             "labels for log_loss, "
+    #             "got {0}.".format(lb.classes_)
+    #         )
+
+    # transformed_labels = lb.transform(y_true)
+    transformed_labels = y_true.reshape(-1, 1)
+    if transformed_labels.shape[1] == 1:
+        transformed_labels = np.append(
+            1 - transformed_labels, transformed_labels, axis=1
+        )
+
+    # Clipping
+    eps = 1e-12
+    y_pred = np.clip(y_pred, eps, 1 - eps)
+
+    # If y_pred is of single dimension, assume y_true to be binary
+    # and then check.
+    if y_pred.ndim == 1:
+        y_pred = y_pred[:, np.newaxis]
+    if y_pred.shape[1] == 1:
+        y_pred = np.append(1 - y_pred, y_pred, axis=1)
+
+    # Check if dimensions are consistent.
+    # transformed_labels = check_array(transformed_labels)
+    # if len(lb.classes_) != y_pred.shape[1]:
+    #     if labels is None:
+    #         raise ValueError(
+    #             "y_true and y_pred contain different number of "
+    #             "classes {0}, {1}. Please provide the true "
+    #             "labels explicitly through the labels argument. "
+    #             "Classes found in "
+    #             "y_true: {2}".format(
+    #                 transformed_labels.shape[1], y_pred.shape[1], lb.classes_
+    #             )
+    #         )
+    #     else:
+    #         raise ValueError(
+    #             "The number of classes in labels is different "
+    #             "from that in y_pred. Classes found in "
+    #             "labels: {0}".format(lb.classes_)
+    #         )
+
+    # Renormalize
+    y_pred /= y_pred.sum(axis=1)[:, np.newaxis]
+    loss = -(transformed_labels * np.log(y_pred)).sum(axis=1)
+
+    return _weighted_sum(loss, sample_weight=None, normalize=True)
+
 class TemperatureScaling():
     '''
     Borrowed from https://github.com/markus93/NN_calibration/blob/master/scripts/calibration/cal_methods.py
@@ -112,16 +220,15 @@ class TemperatureScaling():
         self.temp = temp
         self.maxiter = maxiter
         self.solver = solver
-        self.label_smoothing = False
     
     def _loss_fun(self, x, probs, true):
         # Calculates the loss using log-loss (cross-entropy loss)
         scaled_probs = self.predict(probs, x)    
-        loss = cross_entropy_loss(scaled_probs, true, self.label_smoothing)
+        loss = temp_log_loss(y_true=true, y_pred=scaled_probs)
         return loss
     
     # Find the temperature
-    def fit(self, logits, true, label_smoothing = False):
+    def fit(self, logits, true):
         """
         Trains the model and finds optimal temperature
         
@@ -132,7 +239,6 @@ class TemperatureScaling():
         Returns:
             the results of optimizer after minimizing is finished.
         """
-        self.label_smoothing = label_smoothing
         true = true.flatten() # Flatten y_val
         opt = minimize(self._loss_fun, x0 = 1, args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
         self.temp = opt.x[0]
@@ -160,14 +266,12 @@ class EnsembleTemperatureScaling():
     def __init__(self):
         self.t = None
         self.w = None
-        self.label_smoothing = False
     
     def _ll_w(self, w, p0, p1, p2, label):
         ## find optimal weight coefficients with Cros-Entropy loss function
         p = (w[0]*p0+w[1]*p1+w[2]*p2)
         N = p.shape[0]
-        ce = cross_entropy_loss(p, label, self.label_smoothing)
-        # ce = -np.sum(label*np.log(p))/N
+        ce = temp_log_loss(label, p)
         return ce
 
     def _fit_ensemble_scaling(self, logits, true, temp, n_class=2):
@@ -184,8 +288,7 @@ class EnsembleTemperatureScaling():
         w = w.x
         return w
 
-    def fit(self, logits, true, label_smoothing = False):
-        self.label_smoothing = label_smoothing
+    def fit(self, logits, true):
         temp_scaling = TemperatureScaling()
         temp_scaling.fit(logits, true)
         self.t = temp_scaling.temp
@@ -199,6 +302,36 @@ class EnsembleTemperatureScaling():
         p = self.w[0] * p0 + self.w[1] * p1 + self.w[2] * p2 
         return p
 
+
+class NewPlattScaling():
+    def __init__(self, a = 1, b = 0, maxiter = 25, solver = "BFGS"):
+        self.a = a
+        self.b = b
+        self.maxiter = maxiter 
+        self.solver = solver
+    
+    def _loss_fun(self, x, probs, true):
+        # Calculates the loss using log-loss (cross-entropy loss)
+        scaled_probs = self.predict(probs, x[0], x[1])   
+        # loss = torch.nn.CrossEntropyLoss()
+        loss = new_cross_entropy_loss(scaled_probs, true)
+        print('first loss: ', loss)
+        loss1 = cross_entropy_loss(scaled_probs, true)
+        print('second loss: ', loss1)
+        return loss
+    
+    def fit(self, logits, true):
+        true = true.flatten()
+        opt = minimize(self._loss_fun, x0 = [0.55, 0], args = (logits, true), options = {'maxiter': self.maxiter}, method = self.solver)
+        self.a = opt.x[0]
+        self.b = opt.x[1]
+        return opt
+
+    def predict(self, logits, a = None, b = None):
+        if not a or not b:
+            return softmax(self.a * logits + self.b)
+        else:
+            return softmax(a * logits + b)
 
 class HistogramBinning():
     """
@@ -354,6 +487,87 @@ class EqualFreqBinning():
 
         return probs
 
+class BetaCalibration():
+    '''
+    Code borrowed from https://github.com/betacal/python/blob/master/betacal/beta_calibration.py
+    '''
+    def __init__(self):
+        self.map_ = None 
+        self.lr_ = None
+    
+    def _beta_calibration(self, df, y):
+        df = df.reshape(-1, 1)
+        eps = np.finfo(df.dtype).eps
+        df = np.clip(df, eps, 1-eps)
+
+        x = np.hstack((df, 1. - df))
+        x = np.log(x)
+        x[:, 1] *= -1
+
+        if np.unique(y)[0] == 0 and np.unique(y)[1] == 1:
+            lr = LogisticRegression(C=99999999999)
+            lr.fit(x, y)
+            coefs = lr.coef_[0]
+        else:
+            lr = LogitRegression()
+            lr.fit(x, y)
+            coefs = lr.coef_
+
+        if coefs[0] < 0:
+            x = x[:, 1].reshape(-1, 1)
+            if np.unique(y)[0] == 0 and np.unique(y)[1] == 1:
+                lr = LogisticRegression(C=99999999999)
+            else:
+                lr = LogitRegression()
+            lr.fit(x, y)
+            coefs = lr.coef_[0]
+            a = 0
+            b = coefs[0]
+        elif coefs[1] < 0:
+            x = x[:, 0].reshape(-1, 1)
+            if np.unique(y)[0] == 0 and np.unique(y)[1] == 1:
+                lr = LogisticRegression(C=99999999999)
+            else:
+                lr = LogitRegression()
+            lr.fit(x, y)
+            coefs = lr.coef_[0]
+            a = coefs[0]
+            b = 0
+        else:
+            a = coefs[0]
+            b = coefs[1]
+
+        if np.unique(y)[0] == 0 and np.unique(y)[1] == 1:
+            inter = lr.intercept_[0]
+        else:
+            inter = lr.intercept_
+        
+        m = minimize_scalar(lambda mh: np.abs(b*np.log(1.-mh)-a*np.log(mh)-inter),
+                            bounds=[0, 1], method='Bounded').x
+        map = [a, b, m]
+        return map, lr
+
+    def fit(self, probs, true):
+        self.map_, self.lr_ = self._beta_calibration(probs, true)
+
+    def predict(self, probs):
+        df = probs.reshape(-1, 1)
+        eps = np.finfo(df.dtype).eps
+        df = np.clip(df, eps, 1-eps)
+
+        x = np.hstack((df, 1. - df))
+        x = np.log(x)
+        x[:, 1] *= -1
+        if self.map_[0] == 0:
+            x = x[:, 1].reshape(-1, 1)
+        elif self.map_[1] == 0:
+            x = x[:, 0].reshape(-1, 1)
+
+        if hasattr(self.lr_, 'predict_proba'):
+            return self.lr_.predict_proba(x)[:, 1]
+        else:
+            return self.lr_.predict(x)
+
 # class BBQ():
 #     def __init__(self, num_binning_models = 10, n_prime = 2.0):
 #         self.num_binning_models = num_binning_models
@@ -416,16 +630,14 @@ class PlattScaling():
         self.b = b
         self.maxiter = maxiter
         self.solver = solver
-        self.label_smoothing = False
 
     def _loss_fun(self, x, probs, true):
         # Calculates the loss using log-loss (cross-entropy loss)
-        scaled_probs = self.predict(probs, x[0], x[1])    
-        loss = cross_entropy_loss(scaled_probs, true, self.label_smoothing)
+        scaled_probs = self.predict(probs, x[0], x[1])  
+        loss = temp_log_loss(true, scaled_probs)
         return loss
 
-    def fit(self, logits, true, label_smoothing = False): # optimize w/ NLL loss according to Guo calibration paper
-        self.label_smoothing = label_smoothing
+    def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
         true = true.flatten()
         opt = minimize(self._loss_fun, x0 = [0.55, 0], args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
         self.a = opt.x[0]
@@ -446,7 +658,10 @@ class PlattBinnerCalibrator():
         self._num_bins = num_bins
     
     def get_platt_scaler(self, model_probs, labels):
-        clf = LogisticRegression(C=1e10, solver='lbfgs')
+        if np.unique(labels)[0] == 0 and np.unique(labels)[1] == 1:
+            clf = LogisticRegression(C=1e10, solver='lbfgs')
+        else:
+            clf = LogitRegression()
         eps = 1e-12
         model_probs = model_probs.astype(dtype=np.float64)
         model_probs = np.expand_dims(model_probs, axis=-1)
@@ -459,7 +674,7 @@ class PlattBinnerCalibrator():
             x = np.log(x / (1 - x))
             x = x * clf.coef_[0] + clf.intercept_
             output = 1 / (1 + np.exp(-x))
-            return output
+            return output 
         return calibrator
     
     def split(self, sequence: List[T], parts: int) -> List[List[T]]:
@@ -469,7 +684,7 @@ class PlattBinnerCalibrator():
         assert (part_size - 1) * parts < len(sequence)
         return [sequence[i:i + part_size] for i in range(0, len(sequence), part_size)]
 
-    def get_equal_bins(self, probs: List[float], num_bins: int=10) -> Bins:
+    def get_equal_bins(self, probs, num_bins: int=10) -> Bins:
         """Get bins that contain approximately an equal number of data points."""
         sorted_probs = sorted(probs)
         binned_data = self.split(sorted_probs, num_bins)
@@ -527,6 +742,21 @@ def platt_label_smoothing(labels):
     new_labels = np.where(labels == 1, new_positive_label, new_negative_label)
     return new_labels
 
+def alpha_label_smoothing(labels, alpha):
+    new_positive_label = (1.0 - alpha) + alpha / 2.0
+    new_negative_label = alpha / 2.0
+    new_labels = np.where(labels == 1, new_positive_label, new_negative_label)
+    return new_labels
+
+def apply_label_smoothing(labels, label_smoothing, alpha = 0.1):
+    if label_smoothing == 'none':
+        return labels
+    elif label_smoothing == 'platt':
+        return platt_label_smoothing(labels)
+    elif label_smoothing == 'alpha':
+        return alpha_label_smoothing(labels, alpha)
+    else:
+        raise ValueError("Invalid method of label smoothing")
 
 # def get_probs_and_labels(dataloader, device, model):
 #     logits_list = []
@@ -544,17 +774,17 @@ def platt_label_smoothing(labels):
 
 #     return logits_list, labels_list
 
-def calibrate_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing=False):
+def calibrate_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
         pre_softmax_probs, _, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
 
     temperature_scaling = TemperatureScaling()
-    temperature_scaling.fit(pre_softmax_probs, true_labels, label_smoothing)
+    temperature_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return temperature_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_histogram_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing=False):
+def calibrate_histogram_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
@@ -565,16 +795,12 @@ def calibrate_histogram_binning(dataloader, device, models, post_softmax_probs_p
     for i in range(post_softmax_probs.shape[1]):
         histogram_binning = HistogramBinning()
         y_cal = np.array(true_labels == i, dtype="int")
-
-        if label_smoothing:
-            histogram_binning.fit(post_softmax_probs[:, i], platt_label_smoothing(y_cal))
-        else:
-            histogram_binning.fit(post_softmax_probs[:, i], y_cal)
+        histogram_binning.fit(post_softmax_probs[:, i], apply_label_smoothing(y_cal, label_smoothing, label_smoothing_alpha))
         calibrated_probs_by_class[:, i] = np.squeeze(histogram_binning.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
 
-def calibrate_isotonic_regression(dataloader, device, models, post_softmax_probs_predict, label_smoothing=False):
+def calibrate_isotonic_regression(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
@@ -585,16 +811,12 @@ def calibrate_isotonic_regression(dataloader, device, models, post_softmax_probs
     for i in range(post_softmax_probs.shape[1]):
         isotonic_regression = IsotonicRegression(out_of_bounds='clip')
         y_cal = np.array(true_labels == i, dtype="int")
-
-        if label_smoothing:
-            isotonic_regression.fit(post_softmax_probs[:, i], platt_label_smoothing(y_cal))
-        else:
-            isotonic_regression.fit(post_softmax_probs[:, i], y_cal)
+        isotonic_regression.fit(post_softmax_probs[:, i], apply_label_smoothing(y_cal, label_smoothing, label_smoothing_alpha))
         calibrated_probs_by_class[:, i] = np.squeeze(isotonic_regression.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
 
-def calibrate_beta_calibration(dataloader, device, models, post_softmax_probs_predict, label_smoothing=False):
+def calibrate_beta_calibration(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
@@ -605,26 +827,22 @@ def calibrate_beta_calibration(dataloader, device, models, post_softmax_probs_pr
     for i in range(post_softmax_probs.shape[1]):
         beta_calibration = BetaCalibration()
         y_cal = np.array(true_labels == i, dtype="int")
-
-        # if label_smoothing:
-        #     beta_calibration.fit(post_softmax_probs[:, i], platt_label_smoothing(y_cal))
-        # else:
-        beta_calibration.fit(post_softmax_probs[:, i], y_cal)
+        beta_calibration.fit(post_softmax_probs[:, i], apply_label_smoothing(y_cal, label_smoothing, label_smoothing_alpha))
         calibrated_probs_by_class[:, i] = np.squeeze(beta_calibration.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
 
-def calibrate_platt_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing=False):
+def calibrate_platt_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
         pre_softmax_probs, _, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
 
     platt_scaling = PlattScaling()
-    platt_scaling.fit(pre_softmax_probs, true_labels, label_smoothing)
+    platt_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return platt_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_equal_freq_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing=False):
+def calibrate_equal_freq_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
@@ -635,16 +853,12 @@ def calibrate_equal_freq_binning(dataloader, device, models, post_softmax_probs_
     for i in range(post_softmax_probs.shape[1]):
         equal_freq_binning = EqualFreqBinning()
         y_cal = np.array(true_labels == i, dtype="int")
-
-        if label_smoothing:
-            equal_freq_binning.fit(post_softmax_probs[:, i], platt_label_smoothing(y_cal))
-        else:
-            equal_freq_binning.fit(post_softmax_probs[:, i], y_cal)
+        equal_freq_binning.fit(post_softmax_probs[:, i], apply_label_smoothing(y_cal, label_smoothing, label_smoothing_alpha))
         calibrated_probs_by_class[:, i] = np.squeeze(equal_freq_binning.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
 
-def calibrate_bbq(dataloader, device, models, post_softmax_probs_predict, label_smoothing=False):
+def calibrate_bbq(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
@@ -655,26 +869,22 @@ def calibrate_bbq(dataloader, device, models, post_softmax_probs_predict, label_
     for i in range(post_softmax_probs.shape[1]):
         bbq = BBQ()
         y_cal = np.array(true_labels == i, dtype="int")
-
-        if label_smoothing:
-            bbq.fit(post_softmax_probs[:, i], platt_label_smoothing(y_cal))
-        else:
-            bbq.fit(post_softmax_probs[:, i], y_cal)
+        bbq.fit(post_softmax_probs[:, i], apply_label_smoothing(y_cal, label_smoothing, label_smoothing_alpha))
         calibrated_probs_by_class[:, i] = np.squeeze(bbq.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
 
-def calibrate_ensemble_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing=False):
+def calibrate_ensemble_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
         pre_softmax_probs, _, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
 
     ensemble_temperature_scaling = EnsembleTemperatureScaling()
-    ensemble_temperature_scaling.fit(pre_softmax_probs, true_labels, label_smoothing)
+    ensemble_temperature_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return ensemble_temperature_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_enir(dataloader, device, models, post_softmax_probs_predict, label_smoothing=False):
+def calibrate_enir(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
@@ -686,30 +896,26 @@ def calibrate_enir(dataloader, device, models, post_softmax_probs_predict, label
         enir = ENIR()
         y_cal = np.array(true_labels == i, dtype="int")
 
-        # if label_smoothing:
-        #     enir.fit(post_softmax_probs[:, i], platt_label_smoothing(y_cal))
-        # else:
-        enir.fit(post_softmax_probs[:, i], y_cal)
+        if label_smoothing is not 'none':
+            raise ValueError('Label smoothing not supported for ENIR')
+        else:
+            enir.fit(post_softmax_probs[:, i], y_cal)
         calibrated_probs_by_class[:, i] = np.squeeze(enir.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
 
-def calibrate_platt_binner(dataloader, device, models, pre_softmax_probs_predict, label_smoothing=False):
+def calibrate_platt_binner(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:
-        pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
+        _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        pre_softmax_probs, _, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
 
-    calibrated_probs_by_class = np.zeros(pre_softmax_probs_predict.shape)
+    calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
-    for i in range(pre_softmax_probs.shape[1]):
+    for i in range(post_softmax_probs.shape[1]):
         platt_binner = PlattBinnerCalibrator()
         y_cal = np.array(true_labels == i, dtype="int")
-
-        # if label_smoothing:
-        #     platt_binner.fit(pre_softmax_probs[:, i], platt_label_smoothing(y_cal))
-        # else:
-        platt_binner.fit(pre_softmax_probs[:, i], y_cal)
-        calibrated_probs_by_class[:, i] = np.squeeze(platt_binner.predict(np.expand_dims(pre_softmax_probs_predict[:, i], 1)))
+        platt_binner.fit(post_softmax_probs[:, i], apply_label_smoothing(y_cal, label_smoothing, label_smoothing_alpha))
+        calibrated_probs_by_class[:, i] = np.squeeze(platt_binner.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
