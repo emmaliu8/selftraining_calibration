@@ -33,43 +33,7 @@ def model_training(model, device, num_epochs, train_loader, criterion, file_name
 
     return model
 
-def get_model_predictions(dataloader, device, model):
-    pre_softmax_probs = []
-    post_softmax_probs = []
-    predicted_probs = []
-    predicted_labels = [] 
-    true_labels = []
-
-    model.eval()
-
-    with torch.no_grad():
-        for (_, batch) in enumerate(dataloader):
-            inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
-
-            pre_softmax = model(inputs) 
-
-            # Get softmax values for net input and resulting class predictions
-            sm = nn.Softmax(dim=1)
-            post_softmax = sm(pre_softmax)
-
-            predicted_prob, predicted_label = torch.max(post_softmax.data, 1)
-
-            pre_softmax_probs.append(pre_softmax)
-            post_softmax_probs.append(post_softmax)
-            predicted_probs.extend(predicted_prob.cpu().numpy())
-            predicted_labels.extend(predicted_label.cpu().numpy())
-            true_labels.extend(labels.cpu().numpy())
-    
-    pre_softmax_probs = torch.cat(pre_softmax_probs).cpu().numpy()
-    post_softmax_probs = torch.cat(post_softmax_probs).cpu().numpy()
-    predicted_probs = np.array(predicted_probs).reshape(-1, 1)
-    predicted_labels = np.array(predicted_labels)
-    true_labels = np.array(true_labels)
-
-    return pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels
-
-
-def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=False, use_post_softmax=False, unlabeled=False):
+def get_model_predictions(dataloader, device, models, use_pre_softmax=False, use_post_softmax=False, unlabeled=False):
     all_pre_softmax_probs = []
     all_post_softmax_probs = []
     all_predicted_probs = []

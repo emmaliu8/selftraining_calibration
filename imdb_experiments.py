@@ -12,9 +12,9 @@ from torch.utils.data import DataLoader
 
 from data_setup import create_dataset, split_datasets, load_imdb_dataset, dataset_metrics, TextDataset, get_dataset_from_dataloader
 from extract_features import featurize_dataset
-from model_training import model_training, get_model_predictions, get_aggregate_model_predictions
+from model_training import model_training, get_model_predictions
 from calibration import calibrate_platt_scaling, plot_calibration_curve, calibrate_temperature_scaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration, calibrate_equal_freq_binning, calibrate_bbq, calibrate_ensemble_temperature_scaling, calibrate_enir, calibrate_platt_binner
-from selecting_unlabeled import unlabeled_samples_to_train, unlabeled_samples_to_train_multiple_models
+from selecting_unlabeled import unlabeled_samples_to_train
 from classifiers import TextClassificationModel
 
 # constants
@@ -193,10 +193,7 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
             models[j] = model_training(models[j], device, num_epochs, train_dataloader, criterion, label_smoothing=label_smoothing_model_training, label_smoothing_alpha=label_smoothing_model_training_alpha)
 
         # predictions on test set
-        if len(models) == 1:
-            pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels = get_model_predictions(test_dataloader, device, models[0])
-        else:
-            pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels, _ = get_aggregate_model_predictions(test_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True)
+        pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels, _ = get_model_predictions(test_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True)
 
         # check calibration
         ece, _, _, _, _ = plot_calibration_curve(true_labels, post_softmax_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_initial_calibration.jpg')
@@ -233,10 +230,8 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
             print('Exited on iteration ', i)
             break
 
-        if len(models) == 1:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models[0], device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, retrain_models_from_scratch=retrain_models_from_scratch)
-        else:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train_multiple_models(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, retrain_models_from_scratch=retrain_models_from_scratch)
+        train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models[0], device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, retrain_models_from_scratch=retrain_models_from_scratch)
+
 
         train_dataset_size += num_samples_added_to_train
 
