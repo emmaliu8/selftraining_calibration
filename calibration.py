@@ -1,14 +1,12 @@
 from scipy.optimize import minimize, minimize_scalar
 from sklearn.metrics import log_loss
 from sklearn.linear_model import LogisticRegression, LinearRegression
-# import statsmodels.discrete.discrete_model as sm
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt 
 from sklearn.isotonic import IsotonicRegression
-# from betacal import BetaCalibration
 import bisect
 from typing import List, TypeVar
 
@@ -20,35 +18,6 @@ from netcal_package.binning.ENIR import ENIR
 # for PlattBinnerCalibrator
 Bins = List[float]  # List of bin boundaries, excluding 0.0, but including 1.0. 
 T = TypeVar('T')
-
-def cross_entropy_loss(probs, true, label_smoothing=False):
-    if label_smoothing:
-        loss = LabelSmoothingCrossEntropy(epsilon = 0.5)
-        return loss(probs, true)
-    else:
-        loss = LabelSmoothingCrossEntropy(epsilon = 0)
-        return loss(probs, true)
-
-def linear_combination(x, y, epsilon): 
-    return epsilon*x + (1-epsilon)*y
-
-def reduce_loss(loss, reduction='mean'):
-    return loss.mean() if reduction=='mean' else loss.sum() if reduction=='sum' else loss
-
-class LabelSmoothingCrossEntropy(nn.Module):
-    def __init__(self, epsilon:float=0.1, reduction='mean'):
-        super().__init__()
-        self.epsilon = epsilon
-        self.reduction = reduction
-    
-    def forward(self, preds, target):
-        preds = torch.tensor(preds)
-        target = torch.tensor(target)
-        n = preds.size()[-1]
-        log_preds = F.log_softmax(preds, dim=-1)
-        loss = reduce_loss(-log_preds.sum(dim=-1), self.reduction)
-        nll = F.nll_loss(log_preds, target, reduction=self.reduction)
-        return linear_combination(loss/n, nll, self.epsilon).numpy()
 
 def plot_calibration_curve(y_true, y_prob, filename, num_bins=10):
     if len(y_prob.shape) == 1:
@@ -108,24 +77,6 @@ class LogitRegression(LinearRegression):
     def predict(self, x):
         y = super().predict(x)
         return 1 / (np.exp(-y) + 1)
-
-def new_cross_entropy_loss(probs, true, epsilon=1e-12):
-    # loss0 = -sum([true[i]*np.log(probs[i][0]) for i in range(len(true))]) / len(true)
-    # loss1 = -sum([true[i]*np.log(probs[i][1]) for i in range(len(true))]) / len(true)
-    # return (loss0 + loss1) / 2.0
-
-    # temp_probs0 = np.clip(probs[:, 0], epsilon, 1. - epsilon)
-    # N = temp_probs0.shape[0]
-    # ce0 = -np.sum(true*np.log(temp_probs0+1e-9))/N
-    
-
-    # temp_probs1 = np.clip(probs[:, 1], epsilon, 1. - epsilon)
-    # N = temp_probs1.shape[0]
-    # ce1 = -np.sum(true*np.log(temp_probs1+1e-9))/N
-    # return (ce0 + ce1) / 2.0
-
-    loss = torch.nn.CrossEntropyLoss()
-    return loss(torch.tensor(probs), torch.tensor(true)).cpu()
 
 def _weighted_sum(sample_score, sample_weight, normalize=False):
     if normalize:
@@ -302,37 +253,6 @@ class EnsembleTemperatureScaling():
         p = self.w[0] * p0 + self.w[1] * p1 + self.w[2] * p2 
         return p
 
-
-class NewPlattScaling():
-    def __init__(self, a = 1, b = 0, maxiter = 25, solver = "BFGS"):
-        self.a = a
-        self.b = b
-        self.maxiter = maxiter 
-        self.solver = solver
-    
-    def _loss_fun(self, x, probs, true):
-        # Calculates the loss using log-loss (cross-entropy loss)
-        scaled_probs = self.predict(probs, x[0], x[1])   
-        # loss = torch.nn.CrossEntropyLoss()
-        loss = new_cross_entropy_loss(scaled_probs, true)
-        print('first loss: ', loss)
-        loss1 = cross_entropy_loss(scaled_probs, true)
-        print('second loss: ', loss1)
-        return loss
-    
-    def fit(self, logits, true):
-        true = true.flatten()
-        opt = minimize(self._loss_fun, x0 = [0.55, 0], args = (logits, true), options = {'maxiter': self.maxiter}, method = self.solver)
-        self.a = opt.x[0]
-        self.b = opt.x[1]
-        return opt
-
-    def predict(self, logits, a = None, b = None):
-        if not a or not b:
-            return softmax(self.a * logits + self.b)
-        else:
-            return softmax(a * logits + b)
-
 class HistogramBinning():
     """
     Histogram Binning as a calibration method. The bins are divided into equal lengths.
@@ -411,8 +331,6 @@ class HistogramBinning():
         probs = np.copy(probs)
         for i, prob in enumerate(probs):
             idx = np.searchsorted(self.upper_bounds, prob[0])
-            # idx = [element - 1 if element >= len(self.conf) else element for element in idx]
-            # probs[i] = [self.conf[j] for j in idx]
             probs[i] = self.conf[idx]
 
         return probs
@@ -481,8 +399,6 @@ class EqualFreqBinning():
         probs = np.copy(probs)
         for i, prob in enumerate(probs):
             idx = np.searchsorted(self.upper_bounds, prob[0])
-            # idx = [element - 1 if element >= len(self.conf) else element for element in idx]
-            # probs[i] = [self.conf[j] for j in idx]
             probs[i] = self.conf[idx]
 
         return probs
@@ -567,62 +483,6 @@ class BetaCalibration():
             return self.lr_.predict_proba(x)[:, 1]
         else:
             return self.lr_.predict(x)
-
-# class BBQ():
-#     def __init__(self, num_binning_models = 10, n_prime = 2.0):
-#         self.num_binning_models = num_binning_models
-#         self.n_prime = n_prime
-#         self.binning_models = []
-#         self.binning_model_scores = []
-
-#     def _binning_model_score(self, probs, true, binning_model):
-#         num_bins = binning_model.get_num_bins()
-#         bin_upper_bounds = binning_model.get_bin_upper_bounds()
-
-#         prob_d_given_m = 1
-#         for i in range(int(num_bins)):
-#             lower_bound = 0 if i == 0 else bin_upper_bounds[i-1]
-#             upper_bound = bin_upper_bounds[i]
-#             midpoint = (lower_bound + upper_bound) / 2.0
-
-#             alpha = self.n_prime * midpoint / num_bins
-#             beta = self.n_prime * (1 - midpoint) / num_bins
-
-#             labels_in_bin = true[np.argwhere(np.logical_and(probs > lower_bound, probs <= upper_bound))]
-#             num_instances_in_bin = len(labels_in_bin)
-#             num_positive_class_in_bin = np.count_nonzero(labels_in_bin == 1)
-#             num_negative_class_in_bin = num_instances_in_bin - num_positive_class_in_bin
-
-#             first_bin_product = gamma(self.n_prime / num_bins) / gamma(num_instances_in_bin + self.n_prime / num_bins)
-#             second_bin_product = gamma(num_positive_class_in_bin + alpha) / gamma(alpha)
-#             third_bin_product = gamma(num_negative_class_in_bin + beta) / gamma(beta)
-#             total_bin_product = first_bin_product * second_bin_product * third_bin_product
-#             prob_d_given_m *= total_bin_product
-        
-#         return prob_d_given_m # don't need to multiply by p_m bc uniform prior so it cancels out 
-
-#     def fit(self, probs, true):
-#         # initialize self.binning_models
-#         num_training_samples = len(true)
-#         print('in fit')
-#         print(num_training_samples)
-#         num_bins = int(num_training_samples / 150.0) # to ensure no overflow errors from using gamma function
-#         for _ in range(self.num_binning_models):
-#             print(num_bins)
-#             self.binning_models.append(EqualFreqBinning(int(num_bins)))
-#             num_bins += (num_training_samples - int(num_training_samples / 150.0)) / self.num_binning_models
-
-#         for model in self.binning_models:
-#             model.fit(probs, true)
-#             self.binning_model_scores.append(self._binning_model_score(probs, true, model))
-#             # model.predict(probs)
-#             plot_calibration_curve(true, model.predict(probs[:1]), 'temperature_scaling_test8/bbq' + model.get_num_bins() + '_calibration.jpg')
-
-#     def predict(self, probs):
-#         calibrated_probs = np.zeros(probs.shape)
-#         for i in range(self.num_binning_models):
-#             calibrated_probs += self.binning_model_scores[i] / np.sum(self.binning_model_scores) * self.binning_models[i].predict(probs)
-#         return calibrated_probs
 
 class PlattScaling():
     def __init__(self, a = 1, b = 0, maxiter = 200, solver = "BFGS"):
@@ -757,22 +617,6 @@ def apply_label_smoothing(labels, label_smoothing, alpha = 0.1):
         return alpha_label_smoothing(labels, alpha)
     else:
         raise ValueError("Invalid method of label smoothing")
-
-# def get_probs_and_labels(dataloader, device, model):
-#     logits_list = []
-#     labels_list = []
-
-#     for (_, batch) in enumerate(dataloader):
-#         inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
-
-#         with torch.no_grad():
-#             logits_list.append(model(inputs))
-#             labels_list.append(labels)
-    
-#     logits_list = torch.cat(logits_list).cpu().numpy()
-#     labels_list = torch.cat(labels_list).cpu().numpy()
-
-#     return logits_list, labels_list
 
 def calibrate_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
     if len(models) == 1:

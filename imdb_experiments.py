@@ -240,14 +240,9 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
 
         train_dataset_size += num_samples_added_to_train
 
+        # check for end conditions (no more unlabeled data OR no new samples added to training)
         if num_samples_added_to_train == num_unlabeled_samples: # all unlabeled samples used, will exit in next iteration
             all_unlabeled_data_used = True
-
-        # check for end conditions (no more unlabeled data OR no new samples added to training)
-        # if num_unlabeled_samples == 0:
-        #     print('No more unlabeled data')
-        #     print('Exited on iteration ', i)
-        #     break
         if num_samples_added_to_train == 0:
             print('No more samples with high enough confidence')
             print('Exited on iteration ', i)

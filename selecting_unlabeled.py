@@ -87,7 +87,6 @@ def unlabeled_samples_to_train_multiple_models(models, device, train_dataloader,
             unlabeled_calibrated_probs = calibration_class(validation_dataloader, device, models, aggregate_post_softmax_probs, label_smoothing)
     
     # get all unlabeled inputs
-    # all_unlabeled_inputs, _ = get_dataset_from_dataloader(unlabeled_dataloader, device)
     all_unlabeled_inputs = pd.DataFrame(all_unlabeled_inputs)
 
     df = pd.DataFrame([])
@@ -114,8 +113,6 @@ def unlabeled_samples_to_train_multiple_models(models, device, train_dataloader,
 
     num_samples_added_to_train = len(unlabeled_to_train_labels)
     unlabeled_to_train_labels = np.array(unlabeled_to_train_labels)
-    # unlabeled_to_train_texts = np.concatenate(unlabeled_to_train_texts)
-    # unlabeled_texts = np.concatenate(unlabeled_texts)
     num_unlabeled_samples_before = unlabeled_texts.shape[0] + num_samples_added_to_train
 
     unlabeled_dataloader = DataLoader(TextDataset(unlabeled_texts, np.full((unlabeled_texts.shape[0], 1), -1)), batch_size=batch_size)
