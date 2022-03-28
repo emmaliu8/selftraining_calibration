@@ -778,7 +778,7 @@ def calibrate_temperature_scaling(dataloader, device, models, pre_softmax_probs_
     if len(models) == 1:
         pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        pre_softmax_probs, _, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        pre_softmax_probs, _, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models, use_post_softmax=True)
 
     temperature_scaling = TemperatureScaling()
     temperature_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
@@ -788,7 +788,7 @@ def calibrate_histogram_binning(dataloader, device, models, post_softmax_probs_p
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
         
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
@@ -804,7 +804,7 @@ def calibrate_isotonic_regression(dataloader, device, models, post_softmax_probs
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
@@ -820,7 +820,7 @@ def calibrate_beta_calibration(dataloader, device, models, post_softmax_probs_pr
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
@@ -836,7 +836,7 @@ def calibrate_platt_scaling(dataloader, device, models, pre_softmax_probs_predic
     if len(models) == 1:
         pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        pre_softmax_probs, _, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        pre_softmax_probs, _, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     platt_scaling = PlattScaling()
     platt_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
@@ -846,7 +846,7 @@ def calibrate_equal_freq_binning(dataloader, device, models, post_softmax_probs_
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
@@ -862,7 +862,7 @@ def calibrate_bbq(dataloader, device, models, post_softmax_probs_predict, label_
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
@@ -878,7 +878,7 @@ def calibrate_ensemble_temperature_scaling(dataloader, device, models, pre_softm
     if len(models) == 1:
         pre_softmax_probs, _, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        pre_softmax_probs, _, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        pre_softmax_probs, _, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     ensemble_temperature_scaling = EnsembleTemperatureScaling()
     ensemble_temperature_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
@@ -888,7 +888,7 @@ def calibrate_enir(dataloader, device, models, post_softmax_probs_predict, label
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 
@@ -908,7 +908,7 @@ def calibrate_platt_binner(dataloader, device, models, post_softmax_probs_predic
     if len(models) == 1:
         _, post_softmax_probs, _, _, true_labels = get_model_predictions(dataloader, device, models[0])
     else:
-        _, post_softmax_probs, _, _, true_labels = get_aggregate_model_predictions(dataloader, device, models)
+        _, post_softmax_probs, _, _, true_labels, _ = get_aggregate_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
 

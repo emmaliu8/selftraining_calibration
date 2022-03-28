@@ -27,12 +27,12 @@ num_classes = 2
 num_epochs = 10
 num_self_training_iterations = 1000000
 
-criterion = nn.CrossEntropyLoss() # what about log loss?
+criterion = nn.CrossEntropyLoss() 
 
 def tune_model():
     pass
 
-def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False, platt_label_smoothing = False):
+def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False, label_smoothing = 'none'):
     # reproducible
     torch.manual_seed(0)
     np.random.seed(0)
@@ -99,9 +99,9 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
 
     # recalibrate and examine new calibration on train set
     if calibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling'):
-        calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_pre_softmax_probs, platt_label_smoothing)
+        calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_pre_softmax_probs, label_smoothing)
     else:
-        calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_post_softmax_probs, platt_label_smoothing)
+        calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_post_softmax_probs, label_smoothing)
 
     plot_calibration_curve(train_true_labels, calibrated_train_probs, folder_name + '/' + calibration_method + '_train_after_calibration.jpg')
 
@@ -114,13 +114,13 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
 
     # recalibrate and examine new calibration on test set
     if calibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling'):
-        calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_pre_softmax_probs, platt_label_smoothing)
+        calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_pre_softmax_probs, label_smoothing)
     else:
-        calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_post_softmax_probs, platt_label_smoothing)
+        calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_post_softmax_probs, label_smoothing)
 
     plot_calibration_curve(test_true_labels, calibrated_test_probs, folder_name + '/' + calibration_method + '_test_after_calibration.jpg')
 
-def main(models, criterion, recalibration_method, folder_name, load_features = False, calibrate = True, platt_label_smoothing = False):
+def main(models, criterion, recalibration_method, folder_name, load_features = False, calibrate = True, label_smoothing = 'none', label_smoothing_alpha=None, retrain_models_from_scratch=True, label_smoothing_model_training=False, label_smoothing_model_training_alpha=0.1):
 
     # reproducible
     torch.manual_seed(0)
@@ -128,10 +128,9 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if load_features: # need to add unlabeled
+    if load_features: 
         train_features = torch.load('features_train_data.pt')
         train_labels = torch.load('labels_train_data.pt')
-        train_dataset_size = len(train_labels)
 
         test_features = torch.load('features_test_data.pt')
         test_labels = torch.load('labels_test_data.pt')
@@ -141,6 +140,7 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
 
         (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels), labeled_percentage, validation_percentage)
 
+        train_dataset_size = len(train_labels)
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
         validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
@@ -184,17 +184,19 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
     expected_calibration_errors = []
     expected_calibration_errors_recalibration = []
 
+    all_unlabeled_data_used = False
+
     for i in range(num_self_training_iterations):
 
         # ensure new model for each iteration
-        for i in range(len(models)):
-            models[i] = model_training(models[i], device, num_epochs, train_dataloader, criterion)
+        for j in range(len(models)):
+            models[j] = model_training(models[j], device, num_epochs, train_dataloader, criterion, label_smoothing=label_smoothing_model_training, label_smoothing_alpha=label_smoothing_model_training_alpha)
 
         # predictions on test set
         if len(models) == 1:
             pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels = get_model_predictions(test_dataloader, device, models[0])
         else:
-            pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels = get_aggregate_model_predictions(test_dataloader, device, models, use_pre_softmax=False, use_post_softmax=False)
+            pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels, _ = get_aggregate_model_predictions(test_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True)
 
         # check calibration
         ece, _, _, _, _ = plot_calibration_curve(true_labels, post_softmax_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_initial_calibration.jpg')
@@ -214,9 +216,9 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
             calibration_class = methods[recalibration_method]
 
             if recalibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling'):
-                calibrated_probs = calibration_class(validation_dataloader, device, models, pre_softmax_probs, platt_label_smoothing)
+                calibrated_probs = calibration_class(validation_dataloader, device, models, pre_softmax_probs, label_smoothing, label_smoothing_alpha)
             else:
-                calibrated_probs = calibration_class(validation_dataloader, device, models, post_softmax_probs, platt_label_smoothing)
+                calibrated_probs = calibration_class(validation_dataloader, device, models, post_softmax_probs, label_smoothing, label_smoothing_alpha)
 
             # plot new calibration curve
             ece, _, _, _, _ = plot_calibration_curve(true_labels, calibrated_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_after_calibration.jpg')
@@ -226,22 +228,37 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
         else:
             calibration_class = None
 
-        if len(models) == 1:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models[0], device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, platt_label_smoothing, threshold, batch_size)
-        else:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train_multiple_models(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, platt_label_smoothing, threshold, batch_size)
-
-        train_dataset_size += num_samples_added_to_train
-
-        # check for end conditions (no more unlabeled data OR no new samples added to training)
-        if num_unlabeled_samples == 0:
+        if all_unlabeled_data_used:
             print('No more unlabeled data')
             print('Exited on iteration ', i)
             break
+
+        if len(models) == 1:
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models[0], device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, retrain_models_from_scratch=retrain_models_from_scratch)
+        else:
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train_multiple_models(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, retrain_models_from_scratch=retrain_models_from_scratch)
+
+        train_dataset_size += num_samples_added_to_train
+
+        if num_samples_added_to_train == num_unlabeled_samples: # all unlabeled samples used, will exit in next iteration
+            all_unlabeled_data_used = True
+
+        # check for end conditions (no more unlabeled data OR no new samples added to training)
+        # if num_unlabeled_samples == 0:
+        #     print('No more unlabeled data')
+        #     print('Exited on iteration ', i)
+        #     break
         if num_samples_added_to_train == 0:
             print('No more samples with high enough confidence')
             print('Exited on iteration ', i)
             break
+
+        # reset models to re-train from scratch in next iteration
+        if retrain_models_from_scratch:
+            for model in models:
+                for layer in model.children():
+                    if hasattr(layer, 'reset_parameters'):
+                        layer.reset_parameters()
 
     # plot metrics
     plt.figure()
@@ -251,7 +268,8 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
     plt.plot(f1, color='orange', label='f1')
     plt.plot(auc_roc, color='purple', label='auc_roc')
     plt.plot(expected_calibration_errors, color='yellow', label='expected_calibration')
-    plt.plot(expected_calibration_errors_recalibration, color='pink', label='expected_calibration_recalibration')
+    if calibrate:
+        plt.plot(expected_calibration_errors_recalibration, color='pink', label='expected_calibration_recalibration')
     plt.legend()
     plt.savefig(folder_name + '/' + recalibration_method + '_metrics.jpg')
 
@@ -260,15 +278,12 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
     plt.savefig(folder_name + '/' + recalibration_method + '_trainingdatasize.jpg')
 
     # get/store metric values
-    print('metrics at beginning and end')
-    print('Accuracy: ', accuracy[0], ', ', accuracy[-1])
-    print('Precision: ', precision[0], ', ', precision[-1])
-    print('Recall: ', recall[0], ', ', recall[-1])
-    print('F1: ', f1[0], ', ', f1[-1])
-    print('AUC-ROC: ', auc_roc[0], ', ', auc_roc[-1])
-    print('ECE: ', expected_calibration_errors[0], ', ', expected_calibration_errors[-1])
-    print('ECE after recalibration: ', expected_calibration_errors_recalibration[0], ', ', expected_calibration_errors_recalibration[-1])
-    print('Training data size: ', training_data_size[0], ', ', training_data_size[-1])
+    metrics_dict = {'accuracy': accuracy, 'precision': precision, 'recall': recall, 'f1': f1, 'auc-roc': auc_roc, 'ece': expected_calibration_errors, 'training_data_size': training_data_size}
+    if calibrate:
+        metrics_dict['ece_after_recalibration'] = expected_calibration_errors_recalibration
+    metrics = pd.DataFrame(data=metrics_dict)
+    metrics.to_csv(folder_name + '/' + recalibration_method + '_metrics.csv')
+
 
 # testing calibration
 # print('temperature scaling')
@@ -295,8 +310,8 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
 # model = TextClassificationModel(768, 2)
 # main([model], criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
 
-# model1 = TextClassificationModel(768, 2)
-# model2 = TextClassificationModel(768, 2, 0.2)
-# model3 = TextClassificationModel(768, 2, 0.8)
-# main([model1, model2, model3], criterion, 'temp_scaling', 'self_training_test6', load_features = True, calibrate=True)
+model1 = TextClassificationModel(768, 2)
+model2 = TextClassificationModel(768, 2, 0.2)
+model3 = TextClassificationModel(768, 2, 0.8)
+main([model1], criterion, 'temp_scaling', 'self_training_test12', load_features = True, calibrate=False, retrain_models_from_scratch=False)
 

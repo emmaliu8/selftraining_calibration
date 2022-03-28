@@ -1,10 +1,10 @@
-from cv2 import UMAT_DATA_ASYNC_CLEANUP
 import torch 
 import torch.optim as optim
 from torch import nn
 import numpy as np
+from calibration import alpha_label_smoothing
 
-def model_training(model, device, num_epochs, train_loader, criterion, file_name = None):
+def model_training(model, device, num_epochs, train_loader, criterion, file_name = None, label_smoothing=False, label_smoothing_alpha=0.1):
     model = model.to(device)
     optimizer = optim.SGD(model.parameters(), lr=0.001) # add changing optimizer + parameters used 
 
@@ -14,6 +14,9 @@ def model_training(model, device, num_epochs, train_loader, criterion, file_name
 
         for (_, batch) in enumerate(train_loader):
             inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
+
+            if label_smoothing:
+                labels = alpha_label_smoothing(labels, label_smoothing_alpha)
             
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -71,16 +74,21 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
     all_post_softmax_probs = []
     all_predicted_probs = []
     true_labels = None
+    texts = None
 
     for model in models:
         pre_softmax_probs = []
         post_softmax_probs = []
         predicted_probs = []
         get_true_labels = False
+        get_texts = False
 
         if true_labels is None and not unlabeled: # need to get true_labels once (same for all models)
             true_labels = []
             get_true_labels = True
+        if texts is None: 
+            texts = []
+            get_texts = True
 
         model.eval()
 
@@ -104,6 +112,8 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
                 
                 if get_true_labels:
                     true_labels.extend(labels.cpu().numpy())
+                if get_texts:
+                    texts.append(inputs)
 
     
         pre_softmax_probs = torch.cat(pre_softmax_probs)
@@ -112,7 +122,9 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
 
         if get_true_labels:
             true_labels = np.array(true_labels)
-        
+        if get_texts:
+            texts = torch.cat(texts).cpu().numpy()
+
         all_pre_softmax_probs.append(pre_softmax_probs)
         all_post_softmax_probs.append(post_softmax_probs)
         all_predicted_probs.append(predicted_probs)
@@ -131,9 +143,9 @@ def get_aggregate_model_predictions(dataloader, device, models, use_pre_softmax=
     _, aggregate_predicted_labels_from_predicted = torch.max(aggregate_predicted_probs.data, 1)
 
     if use_pre_softmax:
-        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs_from_pre.cpu().numpy(), aggregate_predicted_probs_from_pre.cpu().numpy(), aggregate_predicted_labels_from_pre.cpu().numpy(), true_labels
+        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs_from_pre.cpu().numpy(), aggregate_predicted_probs_from_pre.cpu().numpy(), aggregate_predicted_labels_from_pre.cpu().numpy(), true_labels, texts
     elif use_post_softmax:
-        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs_from_post.cpu().numpy(), aggregate_predicted_labels_from_post.cpu().numpy(), true_labels
+        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs_from_post.cpu().numpy(), aggregate_predicted_labels_from_post.cpu().numpy(), true_labels, texts
     else:
-        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs.cpu().numpy(), aggregate_predicted_labels_from_predicted.cpu().numpy(), true_labels
+        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs.cpu().numpy(), aggregate_predicted_labels_from_predicted.cpu().numpy(), true_labels, texts
 
