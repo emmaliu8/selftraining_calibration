@@ -10,7 +10,7 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from torch.utils.data import DataLoader
 
-from data_setup import create_dataset, split_datasets, load_imdb_dataset, dataset_metrics, TextDataset, get_dataset_from_dataloader
+from data_setup import create_dataset, split_datasets, load_imdb_dataset, load_sst2_dataset, load_amazon_elec_dataset, load_amazon_elec_binary_dataset, load_dbpedia_dataset, load_ag_news_dataset, load_yelp_full_dataset, load_yelp_polarity_dataset, load_amazon_full_dataset, load_amazon_polarity_dataset, load_yahoo_answers_dataset, load_twenty_news_dataset, load_airport_tweets_dataset, dataset_metrics, TextDataset, get_dataset_from_dataloader
 from extract_features import featurize_dataset
 from model_training import model_training, get_model_predictions
 from calibration import calibrate_platt_scaling, plot_calibration_curve, calibrate_temperature_scaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration, calibrate_equal_freq_binning, calibrate_bbq, calibrate_ensemble_temperature_scaling, calibrate_enir, calibrate_platt_binner
@@ -300,8 +300,10 @@ def main(models, criterion, recalibration_method, folder_name, load_features = F
 # model = TextClassificationModel(768, 2)
 # main([model], criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
 
-model1 = TextClassificationModel(768, 2)
-model2 = TextClassificationModel(768, 2, 0.2)
-model3 = TextClassificationModel(768, 2, 0.8)
-main([model1], criterion, 'temp_scaling', 'self_training_test12', load_features = True, calibrate=False, retrain_models_from_scratch=False)
+# model1 = TextClassificationModel(768, 2)
+# model2 = TextClassificationModel(768, 2, 0.2)
+# model3 = TextClassificationModel(768, 2, 0.8)
+# main([model1], criterion, 'temp_scaling', 'self_training_test12', load_features = True, calibrate=False, retrain_models_from_scratch=False)
+
+load_airport_tweets_dataset('../')
 

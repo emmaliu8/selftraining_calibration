@@ -3,6 +3,8 @@ import torch
 import random
 import os 
 import numpy as np
+import json
+import pandas as pd
 
 def load_imdb_dataset(data_path, seed=123):
     """Loads the IMDb movie reviews sentiment analysis dataset.
@@ -64,6 +66,356 @@ def load_imdb_dataset(data_path, seed=123):
             (unlabeled_texts, np.array(unlabeled_labels)),
             (test_texts, np.array(test_labels)))
 
+def load_sst2_dataset(data_path, seed=123):
+    sst2_data_path = os.path.join(data_path, 'SST-2')
+
+    # Load training data -> unlabeled will come from here
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(sst2_data_path, 'train.tsv')
+    with open(train_path, encoding='utf-8') as f:
+        texts = f.read()
+        result = [text.split('\t') for text in texts.split('\n')]
+        result = result[1:-1]
+        train_texts = [element[0].strip() for element in result]
+        train_labels = [int(element[1]) for element in result]
+
+    # Load validation/dev data -> unlabeled will come from here
+    validation_texts = []
+    validation_labels = []
+    validation_path = os.path.join(sst2_data_path, 'dev.tsv')
+    with open(validation_path, encoding='utf-8') as f:
+        texts = f.read()
+        result = [text.split('\t') for text in texts.split('\n')]
+        result = result[1:-1]
+        validation_texts = [element[0].strip() for element in result]
+        validation_labels = [int(element[1]) for element in result]
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(sst2_data_path, 'test.tsv')
+    with open(test_path, encoding='utf-8') as f:
+        texts = f.read()
+        result = [text.split('\t') for text in texts.split('\n')]
+        result = result[1:-1]
+        test_texts = [element[0].strip() for element in result]
+        test_labels = [int(element[1]) for element in result]
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (validation_texts, np.array(validation_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_amazon_elec_dataset(data_path, seed=123):
+    amazon_elec_data_path = os.path.join(data_path, 'Electronics_5.json')
+
+    texts = []
+    labels = []
+    with open(amazon_elec_data_path, encoding='utf-8') as f:
+        data = f.read()
+        result = data.split('\n')
+        for i in range(len(result)-1):
+            entry = json.loads(result[i])
+            if 'reviewText' in entry:
+                texts.append(entry['reviewText'])
+                labels.append(int(entry['overall']))
+    
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(texts)
+    random.seed(seed)
+    random.shuffle(labels)
+
+    return texts, np.array(labels)
+
+def load_amazon_elec_binary_dataset(data_path, seed=123):
+    amazon_elec_data_path = os.path.join(data_path, 'Electronics_5.json')
+
+    texts = []
+    labels = []
+    with open(amazon_elec_data_path, encoding='utf-8') as f:
+        data = f.read()
+        result = data.split('\n')
+        for i in range(len(result)-1):
+            entry = json.loads(result[i])
+            if 'reviewText' in entry:
+                # original labels from 1 to 5 -> 1 and 2 become negative label, 4 and 5 become positive label, 3 thrown out
+                if int(entry['overall']) in (1, 2):
+                    texts.append(entry['reviewText'])
+                    labels.append(0)
+                elif int(entry['overall']) in (4, 5):
+                    texts.append(entry['reviewText'])
+                    labels.append(1)    
+    
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(texts)
+    random.seed(seed)
+    random.shuffle(labels)
+
+    return texts, np.array(labels)
+
+def load_dbpedia_dataset(data_path, seed=123):
+    dbpedia_data_path = os.path.join(data_path, 'dbpedia_csv')
+
+    # Load train data
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(dbpedia_data_path, 'train.csv')
+    train_data = pd.read_csv(train_path)
+    train_data.columns = ['class', 'title', 'content']
+    train_texts = train_data['content'].tolist()
+    train_labels = train_data['class'].tolist()
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(dbpedia_data_path, 'test.csv')
+    test_data = pd.read_csv(test_path)
+    test_data.columns = ['class', 'title', 'content']
+    test_texts = test_data['content'].tolist()
+    test_labels = test_data['class'].tolist()
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_ag_news_dataset(data_path, seed=123):
+    ag_news_data_path = os.path.join(data_path, 'ag_news_csv')
+
+    # Load train data
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(ag_news_data_path, 'train.csv')
+    train_data = pd.read_csv(train_path)
+    train_data.columns = ['class', 'title', 'content']
+    train_texts = train_data['content'].tolist()
+    train_labels = train_data['class'].tolist()
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(ag_news_data_path, 'test.csv')
+    test_data = pd.read_csv(test_path)
+    test_data.columns = ['class', 'title', 'content']
+    test_texts = test_data['content'].tolist()
+    test_labels = test_data['class'].tolist()
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_yelp_full_dataset(data_path, seed=123):
+    yelp_data_path = os.path.join(data_path, 'yelp_review_full_csv')
+
+    # Load train data
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(yelp_data_path, 'train.csv')
+    train_data = pd.read_csv(train_path)
+    train_data.columns = ['class', 'text']
+    train_texts = train_data['text'].tolist()
+    train_labels = train_data['class'].tolist()
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(yelp_data_path, 'test.csv')
+    test_data = pd.read_csv(test_path)
+    test_data.columns = ['class', 'text']
+    test_texts = test_data['text'].tolist()
+    test_labels = test_data['class'].tolist()
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_yelp_polarity_dataset(data_path, seed=123):
+    yelp_data_path = os.path.join(data_path, 'yelp_review_polarity_csv')
+
+    # Load train data
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(yelp_data_path, 'train.csv')
+    train_data = pd.read_csv(train_path)
+    train_data.columns = ['class', 'text']
+    train_texts = train_data['text'].tolist()
+    train_labels = train_data['class'].tolist()
+    train_labels = [element - 1 for element in train_labels]
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(yelp_data_path, 'test.csv')
+    test_data = pd.read_csv(test_path)
+    test_data.columns = ['class', 'text']
+    test_texts = test_data['text'].tolist()
+    test_labels = test_data['class'].tolist()
+    test_labels = [element - 1 for element in test_labels]
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_amazon_full_dataset(data_path, seed=123):
+    amazon_data_path = os.path.join(data_path, 'amazon_review_full_csv')
+
+    # Load train data
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(amazon_data_path, 'train.csv')
+    train_data = pd.read_csv(train_path)
+    train_data.columns = ['class', 'title', 'text']
+    train_texts = train_data['text'].tolist()
+    train_labels = train_data['class'].tolist()
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(amazon_data_path, 'test.csv')
+    test_data = pd.read_csv(test_path)
+    test_data.columns = ['class', 'title', 'text']
+    test_texts = test_data['text'].tolist()
+    test_labels = test_data['class'].tolist()
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_amazon_polarity_dataset(data_path, seed=123):
+    amazon_data_path = os.path.join(data_path, 'amazon_review_polarity_csv')
+
+    # Load train data
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(amazon_data_path, 'train.csv')
+    train_data = pd.read_csv(train_path)
+    train_data.columns = ['class', 'title', 'text']
+    train_texts = train_data['text'].tolist()
+    train_labels = train_data['class'].tolist()
+    train_labels = [element - 1 for element in train_labels]
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(amazon_data_path, 'test.csv')
+    test_data = pd.read_csv(test_path)
+    test_data.columns = ['class', 'title', 'text']
+    test_texts = test_data['text'].tolist()
+    test_labels = test_data['class'].tolist()
+    test_labels = [element - 1 for element in test_labels]
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_yahoo_answers_dataset(data_path, seed=123):
+    yahoo_answers_data_path = os.path.join(data_path, 'yahoo_answers_csv')
+
+    # Load train data
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(yahoo_answers_data_path, 'train.csv')
+    train_data = pd.read_csv(train_path)
+    train_data.columns = ['class', 'title', 'content', 'answer']
+    train_texts = train_data['answer'].tolist()
+    train_labels = train_data['class'].tolist()
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(yahoo_answers_data_path, 'test.csv')
+    test_data = pd.read_csv(test_path)
+    test_data.columns = ['class', 'title', 'content', 'answer']
+    test_texts = test_data['answer'].tolist()
+    test_labels = test_data['class'].tolist()
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_twenty_news_dataset(data_path, seed=123):
+    twenty_news_data_path = os.path.join(data_path, '20news-18828')
+
+    texts = []
+    labels = []
+    label_index = 0
+
+    for folder_name in sorted(os.listdir(twenty_news_data_path)):
+        label_index += 1
+        path = os.path.join(twenty_news_data_path, folder_name)
+        for filename in sorted(os.listdir(path)):
+            with open(os.path.join(path, filename), 'rb') as f:
+                text = f.read()
+                texts.append(text)
+                labels.append(label_index)
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(texts)
+    random.seed(seed)
+    random.shuffle(labels)
+
+    return texts, np.array(labels)
+
+def load_airport_tweets_dataset(data_path, seed=123):
+    airport_tweets_data_path = os.path.join(data_path, 'Tweets.csv')
+
+    texts = []
+    labels = []
+    data = pd.read_csv(airport_tweets_data_path)
+    texts = data['text'][data['airline_sentiment'] != 'neutral'].tolist()
+    labels = data['airline_sentiment'][data['airline_sentiment'] != 'neutral'].tolist()
+    labels = [1 if element == 'positive' else 0 for element in labels]
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(texts)
+    random.seed(seed)
+    random.shuffle(labels)
+
+    return texts, np.array(labels)
 
 class TextDataset(Dataset):
     def __init__(self, txt, labels):
