@@ -108,8 +108,60 @@ def load_sst2_dataset(data_path, seed=123):
     random.seed(seed)
     random.shuffle(train_labels)
 
+    # Combine train and validation
+    train_texts.extend(validation_texts)
+    train_labels.extend(validation_labels)
+
     return ((train_texts, np.array(train_labels)),
-            (validation_texts, np.array(validation_labels)),
+            (test_texts, np.array(test_labels)))
+
+def load_sst5_dataset(data_path, seed=123):
+    sst5_data_path = os.path.join(data_path, 'SST-5')
+
+    # Load training data -> unlabeled will come from here
+    train_texts = []
+    train_labels = []
+    train_path = os.path.join(sst5_data_path, 'sst_train.txt')
+    with open(train_path, encoding='utf-8') as f:
+        texts = f.read()
+        result = [text.split('\t') for text in texts.split('\n')]
+        result = result[1:-1]
+        train_texts = [element[1].strip() for element in result]
+        train_labels = [int(element[0][-1]) for element in result]
+
+    # Load validation/dev data -> unlabeled will come from here
+    validation_texts = []
+    validation_labels = []
+    validation_path = os.path.join(sst5_data_path, 'sst_dev.txt')
+    with open(validation_path, encoding='utf-8') as f:
+        texts = f.read()
+        result = [text.split('\t') for text in texts.split('\n')]
+        result = result[1:-1]
+        validation_texts = [element[1].strip() for element in result]
+        validation_labels = [int(element[0][-1]) for element in result]
+
+    # Load test data
+    test_texts = []
+    test_labels = []
+    test_path = os.path.join(sst5_data_path, 'sst_test.txt')
+    with open(test_path, encoding='utf-8') as f:
+        texts = f.read()
+        result = [text.split('\t') for text in texts.split('\n')]
+        result = result[1:-1]
+        test_texts = [element[1].strip() for element in result]
+        test_labels = [int(element[0][-1]) for element in result]
+
+    # Shuffle training data and labels
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    # Combine train and validation
+    train_texts.extend(validation_texts)
+    train_labels.extend(validation_labels)
+
+    return ((train_texts, np.array(train_labels)),
             (test_texts, np.array(test_labels)))
 
 def load_amazon_elec_dataset(data_path, seed=123):
@@ -440,7 +492,7 @@ def create_dataset(text, labels, slice_start=None, slice_end=None):
         slice_end = len(text)
     return TextDataset(text[slice_start:slice_end], labels[slice_start:slice_end])
 
-def split_datasets(train, test, unlabeled, labeled_proportion, validation_proportion):
+def split_datasets(train, labeled_proportion, validation_proportion, test=None, unlabeled=None, validation=None):
     '''
     Takes as input three tuples - (train_text, train_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)
     Outputs (train_text, train_labels), (validation_text, validation_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)
@@ -450,6 +502,12 @@ def split_datasets(train, test, unlabeled, labeled_proportion, validation_propor
     Remaining unused samples from input train added to unlabeled set
     labeled_proportion + validation_proportion must be <= 1
     '''
+    if test is None:
+        # make test set 20% of train
+        new_test_size = int(0.2 * len(train[1]))
+        test = train[0][:new_test_size], train[1][:new_test_size]
+        train = train[0][new_test_size:], train[1][new_test_size:]
+
     if labeled_proportion + validation_proportion > 1:
         raise Exception('labeled_proportion and validation_proportion cannot sum to more than 1')
     new_train_size = int(labeled_proportion * len(train[1]))
@@ -457,8 +515,11 @@ def split_datasets(train, test, unlabeled, labeled_proportion, validation_propor
 
     new_train = train[0][:new_train_size], train[1][:new_train_size]
     validation = train[0][new_train_size:new_train_size + validation_size], train[1][new_train_size: new_train_size + validation_size]
-
-    new_unlabeled_text = np.concatenate((unlabeled[0], train[0][new_train_size + validation_size:]), axis=0)
+    
+    if unlabeled is None:
+        new_unlabeled_text = train[0][new_train_size + validation_size:]
+    else:
+        new_unlabeled_text = np.concatenate((unlabeled[0], train[0][new_train_size + validation_size:]), axis=0)
     new_unlabeled_labels = np.full((new_unlabeled_text.shape[0], 1), -1)
     new_unlabeled = (new_unlabeled_text, new_unlabeled_labels)
     return new_train, validation, test, new_unlabeled
