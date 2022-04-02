@@ -7,7 +7,7 @@ from data_setup import TextDataset, get_dataset_from_dataloader
 from model_training import get_model_predictions
 
 
-def unlabeled_samples_to_train(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size):
+def unlabeled_samples_to_train(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None):
     aggregate_pre_softmax_probs, aggregate_post_softmax_probs, aggregate_predicted_probs, aggregate_predicted_labels, _, all_unlabeled_inputs = get_model_predictions(unlabeled_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True, unlabeled=True)
 
     if calibrate:
@@ -30,16 +30,42 @@ def unlabeled_samples_to_train(models, device, train_dataloader, validation_data
         df['predicted_probs'] = np.squeeze(aggregate_predicted_probs)
         df['predicted_labels'] = aggregate_predicted_labels
 
-    high_prob = df.loc[df['predicted_probs'] > threshold]
-    temp = np.array(all_unlabeled_inputs.drop(index=high_prob.index)) # samples to unlabeled set
+    if k_best_and_threshold:
+        df_sorted = df.sort_values(by=['predicted_probs'], ascending=False)
+        df_k_best = df_sorted.head(k)
+        df_k_best_and_threshold = df_k_best.loc[df_k_best['predicted_probs'] > threshold]
+        temp = np.array(all_unlabeled_inputs.drop(index=df_k_best_and_threshold.index))
 
-    unlabeled_texts = temp
-    temp2 = np.array(all_unlabeled_inputs.loc[high_prob.index]) # samples to training set
+        unlabeled_texts = temp
+        temp2 = np.array(all_unlabeled_inputs.loc[df_k_best_and_threshold.index])
 
-    unlabeled_to_train_texts = temp2
-    temp3 = df['predicted_labels'].loc[high_prob.index] # labels for samples to training set
+        unlabeled_to_train_texts = temp2 
+        temp3 = df['predicted_labels'].loc[df_k_best_and_threshold.index]
 
-    unlabeled_to_train_labels = temp3
+        unlabeled_to_train_labels = temp3
+    elif k_best:
+        df_sorted = df.sort_values(by=['predicted_probs'], ascending=False)
+        df_k_best = df_sorted.head(k)
+        temp = np.array(all_unlabeled_inputs.drop(index=df_k_best.index))
+
+        unlabeled_texts = temp
+        temp2 = np.array(all_unlabeled_inputs.loc[df_k_best.index])
+
+        unlabeled_to_train_texts = temp2 
+        temp3 = df['predicted_labels'].loc[df_k_best.index]
+
+        unlabeled_to_train_labels = temp3
+    else:
+        high_prob = df.loc[df['predicted_probs'] > threshold]
+        temp = np.array(all_unlabeled_inputs.drop(index=high_prob.index)) # samples to unlabeled set
+
+        unlabeled_texts = temp
+        temp2 = np.array(all_unlabeled_inputs.loc[high_prob.index]) # samples to training set
+
+        unlabeled_to_train_texts = temp2
+        temp3 = df['predicted_labels'].loc[high_prob.index] # labels for samples to training set
+
+        unlabeled_to_train_labels = temp3
 
 
     num_samples_added_to_train = len(unlabeled_to_train_labels)
