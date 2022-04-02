@@ -99,8 +99,8 @@ def load_sst2_dataset(data_path, seed=123):
         texts = f.read()
         result = [text.split('\t') for text in texts.split('\n')]
         result = result[1:-1]
-        test_texts = [element[0].strip() for element in result]
-        test_labels = [int(element[1]) for element in result]
+        test_texts = [element[1].strip() for element in result]
+        test_labels = [int(element[0]) for element in result]
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -127,7 +127,7 @@ def load_sst5_dataset(data_path, seed=123):
         result = [text.split('\t') for text in texts.split('\n')]
         result = result[1:-1]
         train_texts = [element[1].strip() for element in result]
-        train_labels = [int(element[0][-1]) for element in result]
+        train_labels = [int(element[0][-1])-1 for element in result]
 
     # Load validation/dev data -> unlabeled will come from here
     validation_texts = []
@@ -138,7 +138,7 @@ def load_sst5_dataset(data_path, seed=123):
         result = [text.split('\t') for text in texts.split('\n')]
         result = result[1:-1]
         validation_texts = [element[1].strip() for element in result]
-        validation_labels = [int(element[0][-1]) for element in result]
+        validation_labels = [int(element[0][-1])-1 for element in result]
 
     # Load test data
     test_texts = []
@@ -149,7 +149,7 @@ def load_sst5_dataset(data_path, seed=123):
         result = [text.split('\t') for text in texts.split('\n')]
         result = result[1:-1]
         test_texts = [element[1].strip() for element in result]
-        test_labels = [int(element[0][-1]) for element in result]
+        test_labels = [int(element[0][-1])-1 for element in result]
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -176,7 +176,7 @@ def load_amazon_elec_dataset(data_path, seed=123):
             entry = json.loads(result[i])
             if 'reviewText' in entry:
                 texts.append(entry['reviewText'])
-                labels.append(int(entry['overall']))
+                labels.append(int(entry['overall'])-1)
     
     # Shuffle training data and labels
     random.seed(seed)
@@ -184,7 +184,7 @@ def load_amazon_elec_dataset(data_path, seed=123):
     random.seed(seed)
     random.shuffle(labels)
 
-    return texts, np.array(labels)
+    return ((texts, np.array(labels)),)
 
 def load_amazon_elec_binary_dataset(data_path, seed=123):
     amazon_elec_data_path = os.path.join(data_path, 'Electronics_5.json')
@@ -211,7 +211,7 @@ def load_amazon_elec_binary_dataset(data_path, seed=123):
     random.seed(seed)
     random.shuffle(labels)
 
-    return texts, np.array(labels)
+    return ((texts, np.array(labels)),)
 
 def load_dbpedia_dataset(data_path, seed=123):
     dbpedia_data_path = os.path.join(data_path, 'dbpedia_csv')
@@ -224,6 +224,7 @@ def load_dbpedia_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'content']
     train_texts = train_data['content'].tolist()
     train_labels = train_data['class'].tolist()
+    train_labels = train_labels - 1
 
     # Load test data
     test_texts = []
@@ -233,6 +234,7 @@ def load_dbpedia_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'content']
     test_texts = test_data['content'].tolist()
     test_labels = test_data['class'].tolist()
+    test_labels = test_labels - 1
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -254,6 +256,7 @@ def load_ag_news_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'content']
     train_texts = train_data['content'].tolist()
     train_labels = train_data['class'].tolist()
+    train_labels = train_labels - 1
 
     # Load test data
     test_texts = []
@@ -263,6 +266,7 @@ def load_ag_news_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'content']
     test_texts = test_data['content'].tolist()
     test_labels = test_data['class'].tolist()
+    test_labels = test_labels - 1
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -284,6 +288,7 @@ def load_yelp_full_dataset(data_path, seed=123):
     train_data.columns = ['class', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
+    train_labels = train_labels - 1
 
     # Load test data
     test_texts = []
@@ -293,6 +298,7 @@ def load_yelp_full_dataset(data_path, seed=123):
     test_data.columns = ['class', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
+    test_labels = test_labels - 1
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -346,6 +352,7 @@ def load_amazon_full_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
+    train_labels = train_labels - 1
 
     # Load test data
     test_texts = []
@@ -355,6 +362,7 @@ def load_amazon_full_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
+    test_labels = test_labels - 1
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -408,6 +416,7 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'content', 'answer']
     train_texts = train_data['answer'].tolist()
     train_labels = train_data['class'].tolist()
+    train_labels = train_labels - 1
 
     # Load test data
     test_texts = []
@@ -417,6 +426,7 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'content', 'answer']
     test_texts = test_data['answer'].tolist()
     test_labels = test_data['class'].tolist()
+    test_labels = test_labels - 1
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -449,7 +459,7 @@ def load_twenty_news_dataset(data_path, seed=123):
     random.seed(seed)
     random.shuffle(labels)
 
-    return texts, np.array(labels)
+    return ((texts, np.array(labels)),)
 
 def load_airport_tweets_dataset(data_path, seed=123):
     airport_tweets_data_path = os.path.join(data_path, 'Tweets.csv')
@@ -467,7 +477,7 @@ def load_airport_tweets_dataset(data_path, seed=123):
     random.seed(seed)
     random.shuffle(labels)
 
-    return texts, np.array(labels)
+    return ((texts, np.array(labels)),)
 
 class TextDataset(Dataset):
     def __init__(self, txt, labels):
@@ -517,7 +527,7 @@ def split_datasets(train, labeled_proportion, validation_proportion, test=None, 
     validation = train[0][new_train_size:new_train_size + validation_size], train[1][new_train_size: new_train_size + validation_size]
     
     if unlabeled is None:
-        new_unlabeled_text = train[0][new_train_size + validation_size:]
+        new_unlabeled_text = np.array(train[0][new_train_size + validation_size:])
     else:
         new_unlabeled_text = np.concatenate((unlabeled[0], train[0][new_train_size + validation_size:]), axis=0)
     new_unlabeled_labels = np.full((new_unlabeled_text.shape[0], 1), -1)
