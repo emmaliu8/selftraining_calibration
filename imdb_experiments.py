@@ -21,7 +21,7 @@ from classifiers import TextClassificationModel
 labeled_percentage = 0.2 # percentage of training data to use as initial set of labeled data (for training)
 validation_percentage = 0.1 # percentage of training data to use as validation set for determining calibration parameters
 validation_model_percentage = 0.2 # percentage of training data to use as validation set for tuning model
-batch_size = 64
+batch_size = 256
 threshold = 0.8 # used to determine which unlabeled examples have high enough confidence
 num_classes = 2 
 num_epochs = 10
@@ -120,7 +120,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
 
     plot_calibration_curve(test_true_labels, calibrated_test_probs, folder_name + '/' + calibration_method + '_test_after_calibration.jpg')
 
-def main(models, dataset, criterion, recalibration_method, folder_name, load_features = False, calibrate = True, label_smoothing = 'none', label_smoothing_alpha=None, retrain_models_from_scratch=True, label_smoothing_model_training=False, label_smoothing_model_training_alpha=0.1):
+def main(models, dataset, criterion, recalibration_method, folder_name, load_features = False, calibrate = True, label_smoothing = 'none', label_smoothing_alpha=None, retrain_models_from_scratch=True, label_smoothing_model_training=False, label_smoothing_model_training_alpha=0.1, k_best=None, k=None, k_best_and_threshold=None):
 
     # reproducible
     torch.manual_seed(0)
@@ -152,7 +152,7 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
 
         # split data into train, unlabeled, test
         if len(data) == 1:
-            train = data
+            train = data[0]
             test = None 
             unlabeled = None
         elif len(data) == 2:
@@ -168,16 +168,21 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
 
         # create dataset objects for each split
         train_dataset = create_dataset(train[0], train[1])
-        if not test:
+        if test is not None:
             test_dataset = create_dataset(test[0], test[1])
-        if not unlabeled:
+        if unlabeled is not None:
             unlabeled_dataset = create_dataset(unlabeled[0], unlabeled[1])
 
         # extract features 
-        train = featurize_dataset(train_dataset, device, batch_size, dataset, 'train_data.pt')
-        if not test:
+        if dataset != 'sst2' and dataset != 'sst5' and dataset != 'airport_tweets': # TEMPORARY
+            train = featurize_dataset(train_dataset, device, batch_size, dataset, 'train_data.pt')
+        else:
+            train_features = torch.load(dataset + '_features_train_data.pt')
+            train_labels = torch.load(dataset + '_labels_train_data.pt')
+            train = train_features, train_labels
+        if test is not None:
             test = featurize_dataset(test_dataset, device, batch_size, dataset, 'test_data.pt')
-        if not unlabeled:
+        if unlabeled is not None:
             unlabeled = featurize_dataset(unlabeled_dataset, device, batch_size, dataset, 'unlabeled_data.pt')
 
         # split datasets to get validation and updated train and unlabeled sets
@@ -213,7 +218,7 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
         pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels, _ = get_model_predictions(test_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True)
 
         # check calibration
-        ece, _, _, _, _ = plot_calibration_curve(true_labels, post_softmax_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_initial_calibration.jpg')
+        ece, _, _, _, _ = plot_calibration_curve(true_labels, post_softmax_probs, folder_name + '/' + dataset + '_' + recalibration_method + '_iteration' + str(i) + '_test_initial_calibration.jpg')
 
         # update metrics
         accuracy.append(accuracy_score(true_labels, predicted_labels))
@@ -235,7 +240,7 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
                 calibrated_probs = calibration_class(validation_dataloader, device, models, post_softmax_probs, label_smoothing, label_smoothing_alpha)
 
             # plot new calibration curve
-            ece, _, _, _, _ = plot_calibration_curve(true_labels, calibrated_probs, folder_name + '/' + recalibration_method + '_iteration' + str(i) + '_test_after_calibration.jpg')
+            ece, _, _, _, _ = plot_calibration_curve(true_labels, calibrated_probs, folder_name + '/' + dataset + '_' + recalibration_method + '_iteration' + str(i) + '_test_after_calibration.jpg')
 
             # update metrics for after recalibration
             expected_calibration_errors_recalibration.append(ece)
@@ -247,7 +252,7 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
             print('Exited on iteration ', i)
             break
 
-        train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models[0], device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, retrain_models_from_scratch=retrain_models_from_scratch)
+        train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None)
 
 
         train_dataset_size += num_samples_added_to_train
@@ -278,18 +283,18 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
     if calibrate:
         plt.plot(expected_calibration_errors_recalibration, color='pink', label='expected_calibration_recalibration')
     plt.legend()
-    plt.savefig(folder_name + '/' + recalibration_method + '_metrics.jpg')
+    plt.savefig(folder_name + '/' + dataset + '_' + recalibration_method + '_metrics.jpg')
 
     plt.figure()
     plt.plot(training_data_size)
-    plt.savefig(folder_name + '/' + recalibration_method + '_trainingdatasize.jpg')
+    plt.savefig(folder_name + '/' + dataset + '_' + recalibration_method + '_trainingdatasize.jpg')
 
     # get/store metric values
     metrics_dict = {'accuracy': accuracy, 'precision': precision, 'recall': recall, 'f1': f1, 'auc-roc': auc_roc, 'ece': expected_calibration_errors, 'training_data_size': training_data_size}
     if calibrate:
         metrics_dict['ece_after_recalibration'] = expected_calibration_errors_recalibration
     metrics = pd.DataFrame(data=metrics_dict)
-    metrics.to_csv(folder_name + '/' + recalibration_method + '_metrics.csv')
+    metrics.to_csv(folder_name + '/' + dataset + '_' + recalibration_method + '_metrics.csv')
 
 
 # testing calibration
@@ -322,5 +327,13 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
 # model3 = TextClassificationModel(768, 2, 0.8)
 # main([model1], criterion, 'temp_scaling', 'self_training_test12', load_features = True, calibrate=False, retrain_models_from_scratch=False)
 
-load_sst5_dataset('../')
+
+# datasets = ['amazon_elec_binary', 'amazon_polarity', 'yelp_polarity', 'amazon_elec', 'dbpedia', 'ag_news', 'yelp_full', 'amazon_full', 'yahoo', 'twenty_news']
+model = TextClassificationModel(768, 2)
+# for dataset in datasets:
+#     print(dataset)
+#     main([model], dataset, criterion, 'temp_scaling', 'self_training_test13', load_features = False, calibrate = False)
+
+print('amazon_elec_binary')
+main([model], 'amazon_elec_binary', criterion, 'temp_scaling', 'self_training_test13', load_features = False, calibrate = False)
 
