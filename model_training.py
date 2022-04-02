@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 from torch import nn
 import numpy as np
-from calibration import alpha_label_smoothing
+import calibration
 
 def model_training(model, device, num_epochs, train_loader, criterion, file_name = None, label_smoothing=False, label_smoothing_alpha=0.1):
     model = model.to(device)
@@ -16,7 +16,7 @@ def model_training(model, device, num_epochs, train_loader, criterion, file_name
             inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
 
             if label_smoothing:
-                labels = alpha_label_smoothing(labels, label_smoothing_alpha)
+                labels = calibration.alpha_label_smoothing(labels, label_smoothing_alpha)
             
             # zero the parameter gradients
             optimizer.zero_grad()
