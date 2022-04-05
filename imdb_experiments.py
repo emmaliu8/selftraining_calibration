@@ -30,7 +30,46 @@ num_self_training_iterations = 1000000
 criterion = nn.CrossEntropyLoss() 
 
 def tune_model():
-    pass
+    parameters_to_tune = ['num_epochs', 'learning_rate', 'batch_size', 'initrange']
+    torch.manual_seed(0)
+    np.random.seed(0)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # load imdb data
+    train_features = torch.load('imdb_features_train_data.pt')
+    train_labels = torch.load('imdb_labels_train_data.pt')
+
+    # get training data and validation data for tuning model from original train data
+    train_size = int(labeled_percentage * len(train_labels))
+    calibration_validation_size = int(validation_percentage)
+    model_validation_size = int(0.3 * len(train_labels))
+    model_train_features = train_features[:train_size]
+    model_train_labels = train_labels[:train_size]
+    model_validation_features = train_features[train_size+calibration_validation_size : train_size+calibration_validation_size + model_validation_size]
+    model_validation_labels = train_labels[train_size+calibration_validation_size : train_size+calibration_validation_size + model_validation_size]
+    
+    results = pd.DataFrame(columns=['num_epochs', 'initrange', 'batch_size', 'learning_rate', 'accuracy'])
+
+    for epoch_value in [5, 10, 15, 20, 25, 30]:
+        for initrange_value in [0.2, 0.4, 0.6, 0.8, 1]:
+            for batch_size_value in [64, 128, 256, 512]:
+                for lr_value in [0.00001, 0.0001, 0.001, 0.01, 0.1]:
+                    train_dataloader = DataLoader(TextDataset(model_train_features, model_train_labels), batch_size=batch_size_value)
+                    validation_dataloader = DataLoader(TextDataset(model_validation_features, model_validation_labels), batch_size=batch_size_value)
+
+                    model = TextClassificationModel(768, 2, initrange=initrange_value)
+                    trained_model = model_training(model, device, epoch_value, train_dataloader, criterion, learning_rate=lr_value)
+
+                    # evaluate trained model on validation data 
+                    _, _, _, predicted_labels, true_labels, _ = get_model_predictions(validation_dataloader, device, [trained_model], use_pre_softmax=False, use_post_softmax=True)
+                    accuracy = accuracy_score(true_labels, predicted_labels)
+
+                    results.loc[len(results.index)] = [epoch_value, initrange_value, batch_size_value, lr_value, accuracy]
+
+    results.to_csv('tuning_one_layer_on_imdb_0.2_0.1_0.3.csv') 
+
+
 
 def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False, label_smoothing = 'none'):
     # reproducible
@@ -329,11 +368,13 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
 
 
 # datasets = ['amazon_elec_binary', 'amazon_polarity', 'yelp_polarity', 'amazon_elec', 'dbpedia', 'ag_news', 'yelp_full', 'amazon_full', 'yahoo', 'twenty_news']
-model = TextClassificationModel(768, 2)
+# model = TextClassificationModel(768, 2)
 # for dataset in datasets:
 #     print(dataset)
 #     main([model], dataset, criterion, 'temp_scaling', 'self_training_test13', load_features = False, calibrate = False)
 
-print('amazon_elec_binary')
-main([model], 'amazon_elec_binary', criterion, 'temp_scaling', 'self_training_test13', load_features = False, calibrate = False)
+# print('amazon_elec_binary')
+# main([model], 'amazon_elec_binary', criterion, 'temp_scaling', 'self_training_test13', load_features = False, calibrate = False)
+
+tune_model()
 

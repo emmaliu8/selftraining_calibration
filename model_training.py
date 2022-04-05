@@ -4,9 +4,9 @@ from torch import nn
 import numpy as np
 import calibration
 
-def model_training(model, device, num_epochs, train_loader, criterion, file_name = None, label_smoothing=False, label_smoothing_alpha=0.1):
+def model_training(model, device, num_epochs, train_loader, criterion, file_name = None, label_smoothing=False, label_smoothing_alpha=0.1, learning_rate=0.001):
     model = model.to(device)
-    optimizer = optim.SGD(model.parameters(), lr=0.001) # add changing optimizer + parameters used 
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate) # add changing optimizer + parameters used 
 
     model.train()
 

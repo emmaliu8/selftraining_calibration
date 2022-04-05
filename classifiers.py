@@ -2,7 +2,7 @@ from torch import nn
 
 class TextClassificationModel(nn.Module):
 
-    def __init__(self, embed_dim, num_class, initrange=0.5):
+    def __init__(self, embed_dim, num_class, initrange=0.5, num_layers = 1):
         super(TextClassificationModel, self).__init__()
         self.fc = nn.Linear(embed_dim, num_class)
         self.init_weights(initrange)
