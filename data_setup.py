@@ -224,7 +224,7 @@ def load_dbpedia_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'content']
     train_texts = train_data['content'].tolist()
     train_labels = train_data['class'].tolist()
-    train_labels = train_labels - 1
+    train_labels = [element - 1 for element in train_labels]
 
     # Load test data
     test_texts = []
@@ -234,7 +234,7 @@ def load_dbpedia_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'content']
     test_texts = test_data['content'].tolist()
     test_labels = test_data['class'].tolist()
-    test_labels = test_labels - 1
+    test_labels = [element - 1 for element in test_labels]
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -256,7 +256,7 @@ def load_ag_news_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'content']
     train_texts = train_data['content'].tolist()
     train_labels = train_data['class'].tolist()
-    train_labels = train_labels - 1
+    train_labels = [element - 1 for element in train_labels]
 
     # Load test data
     test_texts = []
@@ -266,7 +266,7 @@ def load_ag_news_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'content']
     test_texts = test_data['content'].tolist()
     test_labels = test_data['class'].tolist()
-    test_labels = test_labels - 1
+    test_labels = [element - 1 for element in test_labels]
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -288,7 +288,7 @@ def load_yelp_full_dataset(data_path, seed=123):
     train_data.columns = ['class', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
-    train_labels = train_labels - 1
+    train_labels = [element - 1 for element in train_labels]
 
     # Load test data
     test_texts = []
@@ -298,7 +298,7 @@ def load_yelp_full_dataset(data_path, seed=123):
     test_data.columns = ['class', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
-    test_labels = test_labels - 1
+    test_labels = [element - 1 for element in test_labels]
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -352,7 +352,7 @@ def load_amazon_full_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
-    train_labels = train_labels - 1
+    train_labels = [element - 1 for element in train_labels]
 
     # Load test data
     test_texts = []
@@ -362,7 +362,7 @@ def load_amazon_full_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
-    test_labels = test_labels - 1
+    test_labels = [element - 1 for element in test_labels]
 
     # Shuffle training data and labels
     random.seed(seed)
@@ -416,7 +416,7 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     train_data.columns = ['class', 'title', 'content', 'answer']
     train_texts = train_data['answer'].tolist()
     train_labels = train_data['class'].tolist()
-    train_labels = train_labels - 1
+    train_labels = [element - 1 for element in train_labels]
 
     # Load test data
     test_texts = []
@@ -426,7 +426,7 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     test_data.columns = ['class', 'title', 'content', 'answer']
     test_texts = test_data['answer'].tolist()
     test_labels = test_data['class'].tolist()
-    test_labels = test_labels - 1
+    test_labels = [element - 1 for element in test_labels]
 
     # Shuffle training data and labels
     random.seed(seed)

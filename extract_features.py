@@ -39,32 +39,48 @@ def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_nam
     all_features = None
     labels = []
     index = 1
+    added = False
 
     for (_, batch) in enumerate(text_dataloader):
-        new_features = tokenize_and_features(batch['Text'], device)
         batch_labels = batch['Class']
         labels.extend(batch_labels)
 
-        if features is None:
-            features = new_features
+        if index > 0:
+            new_features = tokenize_and_features(batch['Text'], device)
+
+            if features is None:
+                features = new_features
+            else:
+                features = np.concatenate((features, new_features), axis=0)
+            
+            if all_features is None:
+                all_features = new_features 
+            else:
+                all_features = np.concatenate((all_features, new_features), axis=0)
         else:
-            features = np.concatenate((features, new_features), axis=0)
-        
-        if all_features is None:
-            all_features = new_features 
-        else:
-            all_features = np.concatenate((all_features, new_features), axis=0)
+            if not added:
+                new_features = torch.load(dataset_name + '_' + str(index) + '_features_' + file_name)
+                features = new_features
+
+                if all_features is None:
+                    all_features = new_features
+                else:
+                    all_features = np.concatenate((all_features, new_features), axis=0)
+                added = True
 
         if len(labels) > 100000:
             if file_name is not None:
-                torch.save(features, dataset_name + '_' + str(index) + '_' + '_features_' + file_name)
-                torch.save(labels, dataset_name + '_' + str(index) + '_' + '_labels_' + file_name)
+                torch.save(features, dataset_name + '_' + str(index) + '_features_' + file_name)
+                torch.save(labels, dataset_name + '_' + str(index) + '_labels_' + file_name)
                 features = None 
                 labels = []
+                index += 1
+                added = False
+                print(index)
     
     # save dataset to file
     if file_name is not None:
-        torch.save(features, dataset_name + '_features_' + file_name)
-        torch.save(dataset.get_labels(), dataset_name + '_labels_' + file_name)
+        torch.save(features, dataset_name + '_' + str(index) + '_features_' + file_name)
+        torch.save(labels, dataset_name + '_' + str(index) + '_labels_' + file_name)
 
     return all_features, dataset.get_labels()
