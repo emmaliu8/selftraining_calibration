@@ -213,6 +213,56 @@ def load_amazon_elec_binary_dataset(data_path, seed=123):
 
     return ((texts, np.array(labels)),)
 
+def load_modified_amazon_elec_binary_dataset(data_path, seed=123):
+    amazon_elec_data_path = os.path.join(data_path, 'elec-unlab')
+
+    # Load training data
+    train_texts = [] 
+    train_labels = []
+    train_texts_file = 'elec-25k-train.txt'
+    train_labels_file = 'elec-25k-train.cat' # labels are 1 and 2
+    with open(os.path.join(amazon_elec_data_path, train_texts_file), encoding='utf-8') as f:
+        train_texts = [element.strip() for element in f.read().split('\n')]
+    train_texts = train_texts[:-1]
+    with open(os.path.join(amazon_elec_data_path, train_labels_file), encoding='utf-8') as f:
+        labels = [element for element in f.read().split('\n')]
+        labels = labels[:-1]
+        train_labels = [int(element) - 1 for element in labels]
+
+    # Load unlabeled data
+    unlabeled_texts = [] 
+    unlabeled_labels = []
+    unlabeled_texts_files = ['elec-25k-unlab00.txt', 'elec-25k-unlab01.txt']
+    for file in unlabeled_texts_files:
+        with open(os.path.join(amazon_elec_data_path, file), encoding='utf-8') as f:
+            texts = [element.strip() for element in f.read().split('\n')]
+        texts = texts[:-1]
+        unlabeled_texts.extend(texts)
+    unlabeled_labels = [-1 for _ in range(len(unlabeled_texts))]
+
+    # Load test data
+    test_texts = [] 
+    test_labels = []
+    test_texts_file = 'elec-test.txt'
+    test_labels_file = 'elec-test.cat' # labels are 1 and 2
+    with open(os.path.join(amazon_elec_data_path, test_texts_file), encoding='utf-8') as f:
+        test_texts = [element.strip() for element in f.read().split('\n')]
+    test_texts = test_texts[:-1]
+    with open(os.path.join(amazon_elec_data_path, test_labels_file), encoding='utf-8') as f:
+        labels = [element for element in f.read().split('\n')]
+        labels = labels[:-1]
+        test_labels = [int(element) - 1 for element in labels]
+
+    # Shuffle the training data and labels.
+    random.seed(seed)
+    random.shuffle(train_texts)
+    random.seed(seed)
+    random.shuffle(train_labels)
+
+    return ((train_texts, np.array(train_labels)),
+            (unlabeled_texts, np.array(unlabeled_labels)),
+            (test_texts, np.array(test_labels)))
+
 def load_dbpedia_dataset(data_path, seed=123):
     dbpedia_data_path = os.path.join(data_path, 'dbpedia_csv')
 
@@ -414,6 +464,7 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     train_path = os.path.join(yahoo_answers_data_path, 'train.csv')
     train_data = pd.read_csv(train_path)
     train_data.columns = ['class', 'title', 'content', 'answer']
+    train_data = train_data.dropna()
     train_texts = train_data['answer'].tolist()
     train_labels = train_data['class'].tolist()
     train_labels = [element - 1 for element in train_labels]
@@ -449,7 +500,7 @@ def load_twenty_news_dataset(data_path, seed=123):
         path = os.path.join(twenty_news_data_path, folder_name)
         for filename in sorted(os.listdir(path)):
             with open(os.path.join(path, filename), 'rb') as f:
-                text = f.read()
+                text = f.read().decode('utf-8', 'ignore')
                 texts.append(text)
                 labels.append(label_index)
 
