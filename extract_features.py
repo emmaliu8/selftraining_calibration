@@ -1,11 +1,8 @@
-import os
-import random
 import torch
 import transformers
 import numpy as np
 from torch.utils.data import DataLoader
 
-from data_setup import TextDataset
 
 batch_size = 256
 
@@ -76,7 +73,6 @@ def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_nam
                 labels = []
                 index += 1
                 added = False
-                print(index)
     
     # save dataset to file
     if file_name is not None:
