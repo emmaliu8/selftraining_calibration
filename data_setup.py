@@ -475,6 +475,7 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     test_path = os.path.join(yahoo_answers_data_path, 'test.csv')
     test_data = pd.read_csv(test_path)
     test_data.columns = ['class', 'title', 'content', 'answer']
+    test_data = test_data.dropna()
     test_texts = test_data['answer'].tolist()
     test_labels = test_data['class'].tolist()
     test_labels = [element - 1 for element in test_labels]
