@@ -10,10 +10,23 @@ from uq360.metrics.classification_metrics import expected_calibration_error
 import model_training
 from netcal_package.binning.BBQ import BBQ
 from netcal_package.binning.ENIR import ENIR 
+# from keras.utils import to_categorical
+# from dirichlet_python.dirichletcal.calib.vectorscaling import VectorScaling1
+# from dirichlet_python.dirichletcal.calib.matrixscaling import MatrixScaling1
+# from dirichlet_python.dirichletcal.calib.fulldirichlet import FullDirichletCalibrator
 
 # for PlattBinnerCalibrator
 Bins = List[float]  # List of bin boundaries, excluding 0.0, but including 1.0. 
 T = TypeVar('T')
+
+def to_categorical(labels, num_classes=None):
+    if num_classes is None:
+        num_classes = np.max(labels) + 1 # assumes labels are 0-indexed
+    labels_list = list(labels)
+    result = np.zeros((len(labels_list), num_classes))
+    for i in range(len(labels_list)):
+        result[i] = np.eye(num_classes, dtype='uint8')[labels_list[i]]
+    return result
 
 def plot_calibration_curve(y_true, y_prob, filename, num_bins=10):
     if len(y_prob.shape) == 1:
@@ -109,10 +122,12 @@ def temp_log_loss(y_true, y_pred):
 
     # transformed_labels = lb.transform(y_true)
     transformed_labels = y_true.reshape(-1, 1)
-    if transformed_labels.shape[1] == 1:
+    if transformed_labels.shape[1] == 1 and y_pred.shape[1] == 2:
         transformed_labels = np.append(
             1 - transformed_labels, transformed_labels, axis=1
         )
+    elif transformed_labels.shape[1] == 1 and y_pred.shape[1] > 2:
+        transformed_labels = to_categorical(y_true)
 
     # Clipping
     eps = 1e-12
@@ -170,7 +185,7 @@ class TemperatureScaling():
     
     def _loss_fun(self, x, probs, true):
         # Calculates the loss using log-loss (cross-entropy loss)
-        scaled_probs = self.predict(probs, x)    
+        scaled_probs = self.predict(probs, x)   
         loss = temp_log_loss(y_true=true, y_pred=scaled_probs)
         return loss
     
@@ -506,6 +521,102 @@ class PlattScaling():
         else:
             return softmax(a * logits + b)
 
+class VectorScaling():
+    def __init__(self, n_classes, a_diags = None, b = None, maxiter = 200, solver = "BFGS"):
+        self.n_classes = n_classes
+        if a_diags is None:
+            self.a_diags = [1 for _ in range(n_classes)]
+        else: 
+            if len(a_diags) != n_classes:
+                raise ValueError("Length of a_diags should be equal to n_classes")
+            else:
+                self.a_diags = a_diags
+        # use self.a_diags to make a -> shape: (n_classes, n_classes) - diagonal matrix
+        if b is None:
+            self.b = np.zeros((n_classes, 1)) # shape: (n_classes, 1)
+        else:
+            if b.shape[0] != n_classes or b.shape[1] != 1:
+                raise ValueError("shape of b should be (n_classes, 1)")
+            else:
+                self.b = b
+        self.maxiter = maxiter
+        self.solver = solver
+
+    def _loss_fun(self, x, probs, true):
+        # Calculates the loss using log-loss (cross-entropy loss)
+        a_diags = x[:self.n_classes]
+        b = np.reshape(x[self.n_classes:], (self.n_classes, 1))
+        scaled_probs = self.predict(probs, a_diags, b)  
+        loss = temp_log_loss(true, scaled_probs)
+        return loss
+
+    def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
+        true = true.flatten()
+        initial_a_diags = [1 for _ in range(self.n_classes)]
+        initial_b = np.zeros((self.n_classes, 1))
+        initial_x0 = initial_a_diags + list(initial_b.flatten())
+        opt = minimize(self._loss_fun, x0 = initial_x0, args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
+        self.a_diags = opt.x[0:self.n_classes]
+        self.b = np.reshape(opt.x[self.n_classes:], (self.n_classes, 1))
+        return opt
+
+    def predict(self, logits, a_diags = None, b = None):
+        if a_diags is None or b is None:
+            a = np.diag(self.a_diags)
+            return softmax(np.matmul(a, logits.T) + self.b).T
+        else:
+            a = np.diag(a_diags)
+            return softmax(np.matmul(a, logits.T) + b).T
+
+class MatrixScaling():
+    def __init__(self, n_classes, a = None, b = None, maxiter = 200, solver = "BFGS"):
+        self.n_classes = n_classes
+        self.a = np.diag([a for _ in range(n_classes)]) # shape: (n_classes, n_classes)
+        self.b = np.full((n_classes, 1), b) # shape: (n_classes, 1)
+        if a is None:
+            pass 
+        else:
+            if a.shape[0] != n_classes or a.shape[1] != n_classes:
+                raise ValueError("shape of a should be (n_classes, n_classes)")
+            else:
+                self.a = a
+        if b is None:
+            pass 
+        else:
+            if b.shape[0] != n_classes or b.shape[1] != n_classes:
+                raise ValueError("shape of b should be (n_classes, 1)")
+            else:
+                self.b = b
+        self.maxiter = maxiter
+        self.solver = solver
+
+    def _loss_fun(self, x, probs, true):
+        # Calculates the loss using log-loss (cross-entropy loss)
+        # use x to get a and b
+        # first self.n_classes * self.n_classes params for a
+        # last self.n_classes params for b
+        a = np.reshape(np.array(x[:self.n_classes*self.n_classes]), (self.n_classes, self.n_classes))
+        b = np.reshape(np.array(x[self.n_classes*self.n_classes:]), (self.n_classes, 1))
+        scaled_probs = self.predict(probs, a, b)  
+        loss = temp_log_loss(true, scaled_probs)
+        return loss
+
+    def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
+        true = true.flatten()
+        initial_a = np.eye(self.n_classes)
+        initial_b = np.zeros((self.n_classes, 1))
+        x0 = list(initial_a.flatten()) + list(initial_b.flatten())
+        opt = minimize(self._loss_fun, x0 = x0, args=(logits, true), options={'maxiter':self.maxiter}, method = self.solver)
+        self.a = np.reshape(np.array(opt.x[:self.n_classes*self.n_classes]), (self.n_classes, self.n_classes))
+        self.b = np.reshape(np.array(opt.x[self.n_classes*self.n_classes:]), (self.n_classes, 1))
+        return opt
+
+    def predict(self, logits, a = None, b = None):
+        if a is None or b is None:
+            return softmax(np.matmul(self.a, logits.T) + self.b).T
+        else:
+            return softmax(np.matmul(a, logits.T) + b).T
+
 class PlattBinnerCalibrator():
     '''
     Borrowed from https://github.com/p-lambda/verified_calibration/blob/master/calibration/calibrators.py#L20
@@ -729,3 +840,25 @@ def calibrate_platt_binner(dataloader, device, models, post_softmax_probs_predic
         calibrated_probs_by_class[:, i] = np.squeeze(platt_binner.predict(np.expand_dims(post_softmax_probs_predict[:, i], 1)))
 
     return calibrated_probs_by_class
+
+def calibrate_vector_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
+    pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
+
+    vector_scaling = VectorScaling(num_classes)
+    vector_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
+    return vector_scaling.predict(pre_softmax_probs_predict)
+
+def calibrate_matrix_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
+    pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
+
+    matrix_scaling = MatrixScaling(num_classes)
+    matrix_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
+    return matrix_scaling.predict(pre_softmax_probs_predict)
+
+def calibrate_full_dirichlet(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
+    pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
+
+    full_dirichlet = FullDirichletCalibrator()
+    full_dirichlet.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
+    return full_dirichlet.predict(pre_softmax_probs_predict)
+
