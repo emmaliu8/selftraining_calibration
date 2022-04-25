@@ -2,7 +2,7 @@ import torch
 import transformers
 import numpy as np
 from torch.utils.data import DataLoader
-
+import os
 
 batch_size = 256
 
@@ -11,7 +11,6 @@ def remove_br_tags(text):
 
 def tokenize_and_features(text, device):
     # assumes text is a list of samples
-
     text = [remove_br_tags(element) for element in text]
     bert_tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased')
     bert_model = transformers.BertModel.from_pretrained('bert-base-uncased')
@@ -80,3 +79,25 @@ def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_nam
         torch.save(labels, dataset_name + '_' + str(index) + '_labels_' + file_name)
 
     return all_features, dataset.get_labels()
+
+def combine_dataset_files(dataset, split, file_path):
+    # format of features filename is dataset_index_features_split_data.pt
+    # format of labels filename is dataset_index_labels_split_data.pt
+
+    largest_index = 1
+    for fname in sorted(os.listdir(file_path)):
+        if fname.startswith(dataset) and fname.endswith(split + "_data.pt"):
+            fname_split = fname.split("_")
+            if int(fname_split[1]) > largest_index:
+                largest_index = int(fname_split[1])
+    
+    features = [] 
+    labels = []
+    for i in range(1, largest_index + 1):
+        new_features = torch.load(dataset + "_" + str(i) + "_features_" + split + "_data.pt")
+        new_labels = torch.load(dataset + "_" + str(i) + "_labels_" + split + "_data.pt")
+
+        features.extend(new_features)
+        labels.extend(new_labels)
+
+    return features, labels
