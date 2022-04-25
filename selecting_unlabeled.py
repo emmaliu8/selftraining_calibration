@@ -5,7 +5,7 @@ from data_setup import TextDataset, get_dataset_from_dataloader
 from model_training import get_model_predictions
 
 
-def unlabeled_samples_to_train(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None):
+def unlabeled_samples_to_train(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None, margin_only=None, margin=False, diff_between_top_two_classes=None, balance_classes=False):
     aggregate_pre_softmax_probs, aggregate_post_softmax_probs, aggregate_predicted_probs, aggregate_predicted_labels, _, all_unlabeled_inputs = get_model_predictions(unlabeled_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True, unlabeled=True)
 
     if calibrate:
@@ -22,16 +22,41 @@ def unlabeled_samples_to_train(models, device, train_dataloader, validation_data
 
     if calibrate:
         df['predicted_labels'] = np.argmax(unlabeled_calibrated_probs, axis=1)
-        unlabeled_calibrated_probs = np.max(unlabeled_calibrated_probs, axis=1)
-        df['predicted_probs'] = unlabeled_calibrated_probs   
+        unlabeled_calibrated_probs_max = np.max(unlabeled_calibrated_probs, axis=1)
+        df['predicted_probs'] = unlabeled_calibrated_probs_max   
     else:
         df['predicted_probs'] = np.squeeze(aggregate_predicted_probs)
         df['predicted_labels'] = aggregate_predicted_labels
+    
+    if margin:
+        if calibrate:
+            sorted_unlabeled_calibrated_probs = np.sort(unlabeled_calibrated_probs, axis=1) # sorted in ascending order 
+            margin = sorted_unlabeled_calibrated_probs[:, -1] - sorted_unlabeled_calibrated_probs[:, -2]
+            df['margin'] = margin
+        else:
+            sorted_unlabeled_probs = np.sort(aggregate_post_softmax_probs, axis=1) # sorted in ascending order 
+            margin = sorted_unlabeled_probs[:, -1] - sorted_unlabeled_calibrated_probs[:, -2]
+            df['margin'] = margin
+            df['margin'] = df['margin'].abs()
 
-    if k_best_and_threshold:
+    if margin_only:
+        high_margin = df.loc[df['margin'] > diff_between_top_two_classes]
+        temp = np.array(all_unlabeled_inputs.drop(index=high_margin.index)) # samples to unlabeled set
+
+        unlabeled_texts = temp
+        temp2 = np.array(all_unlabeled_inputs.loc[high_margin.index]) # samples to training set
+
+        unlabeled_to_train_texts = temp2
+        temp3 = df['predicted_labels'].loc[high_margin.index] # labels for samples to training set
+
+        unlabeled_to_train_labels = temp3
+    elif k_best_and_threshold:
         df_sorted = df.sort_values(by=['predicted_probs'], ascending=False)
         df_k_best = df_sorted.head(k)
-        df_k_best_and_threshold = df_k_best.loc[df_k_best['predicted_probs'] > threshold]
+        if margin:
+            df_k_best_and_threshold = df_k_best.loc[(df_k_best['predicted_probs'] > threshold) & (df_k_best['margin'] > diff_between_top_two_classes)]
+        else:
+            df_k_best_and_threshold = df_k_best.loc[df_k_best['predicted_probs'] > threshold]
         temp = np.array(all_unlabeled_inputs.drop(index=df_k_best_and_threshold.index))
 
         unlabeled_texts = temp
@@ -44,6 +69,8 @@ def unlabeled_samples_to_train(models, device, train_dataloader, validation_data
     elif k_best:
         df_sorted = df.sort_values(by=['predicted_probs'], ascending=False)
         df_k_best = df_sorted.head(k)
+        if margin:
+            df_k_best = df_k_best.loc[df_k_best['margin'] > diff_between_top_two_classes]
         temp = np.array(all_unlabeled_inputs.drop(index=df_k_best.index))
 
         unlabeled_texts = temp
@@ -54,7 +81,10 @@ def unlabeled_samples_to_train(models, device, train_dataloader, validation_data
 
         unlabeled_to_train_labels = temp3
     else:
-        high_prob = df.loc[df['predicted_probs'] > threshold]
+        if margin:
+            high_prob = df.loc[(df['predicted_probs'] > threshold) & (df['margin'] > diff_between_top_two_classes)] 
+        else:
+            high_prob = df.loc[df['predicted_probs'] > threshold]
         temp = np.array(all_unlabeled_inputs.drop(index=high_prob.index)) # samples to unlabeled set
 
         unlabeled_texts = temp
