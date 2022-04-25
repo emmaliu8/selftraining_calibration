@@ -72,45 +72,42 @@ def load_sst2_dataset(data_path, seed=123):
     # Load training data -> unlabeled will come from here
     train_texts = []
     train_labels = []
-    train_path = os.path.join(sst2_data_path, 'train.tsv')
-    with open(train_path, encoding='utf-8') as f:
+    train_text_path = os.path.join(sst2_data_path, 'sst2_train_sentences.txt')
+    with open(train_text_path, encoding='utf-8') as f:
         texts = f.read()
-        result = [text.split('\t') for text in texts.split('\n')]
-        result = result[1:-1]
-        train_texts = [element[0].strip() for element in result]
-        train_labels = [int(element[1]) for element in result]
-
-    # Load validation/dev data -> unlabeled will come from here
-    validation_texts = []
-    validation_labels = []
-    validation_path = os.path.join(sst2_data_path, 'dev.tsv')
-    with open(validation_path, encoding='utf-8') as f:
-        texts = f.read()
-        result = [text.split('\t') for text in texts.split('\n')]
-        result = result[1:-1]
-        validation_texts = [element[0].strip() for element in result]
-        validation_labels = [int(element[1]) for element in result]
+        result = [text for text in texts.split('\n')]
+        result = result[:-1]
+        train_texts = [element.strip() for element in result]
+    
+    train_label_path = os.path.join(sst2_data_path, 'sst2_train_labels.txt')
+    with open(train_label_path, encoding='utf-8') as f:
+        labels = f.read()
+        result = [label for label in labels.split('\n')]
+        result = result[:-1]
+        train_labels = [int(element) for element in result]
 
     # Load test data
     test_texts = []
     test_labels = []
-    test_path = os.path.join(sst2_data_path, 'test.tsv')
-    with open(test_path, encoding='utf-8') as f:
+    test_text_path = os.path.join(sst2_data_path, 'sst2_test_sentences.txt')
+    with open(test_text_path, encoding='utf-8') as f:
         texts = f.read()
-        result = [text.split('\t') for text in texts.split('\n')]
-        result = result[1:-1]
-        test_texts = [element[1].strip() for element in result]
-        test_labels = [int(element[0]) for element in result]
+        result = [text for text in texts.split('\n')]
+        result = result[:-1]
+        test_texts = [element.strip() for element in result]
+    
+    test_label_path = os.path.join(sst2_data_path, 'sst2_test_labels.txt')
+    with open(test_label_path, encoding='utf-8') as f:
+        labels = f.read()
+        result = [label for label in labels.split('\n')]
+        result = result[:-1]
+        test_labels = [int(element) for element in result]
 
     # Shuffle training data and labels
     random.seed(seed)
     random.shuffle(train_texts)
     random.seed(seed)
     random.shuffle(train_labels)
-
-    # Combine train and validation
-    train_texts.extend(validation_texts)
-    train_labels.extend(validation_labels)
 
     return ((train_texts, np.array(train_labels)),
             (test_texts, np.array(test_labels)))
@@ -125,7 +122,7 @@ def load_sst5_dataset(data_path, seed=123):
     with open(train_path, encoding='utf-8') as f:
         texts = f.read()
         result = [text.split('\t') for text in texts.split('\n')]
-        result = result[1:-1]
+        result = result[0:-1]
         train_texts = [element[1].strip() for element in result]
         train_labels = [int(element[0][-1])-1 for element in result]
 
@@ -136,7 +133,7 @@ def load_sst5_dataset(data_path, seed=123):
     with open(validation_path, encoding='utf-8') as f:
         texts = f.read()
         result = [text.split('\t') for text in texts.split('\n')]
-        result = result[1:-1]
+        result = result[0:-1]
         validation_texts = [element[1].strip() for element in result]
         validation_labels = [int(element[0][-1])-1 for element in result]
 
@@ -147,7 +144,7 @@ def load_sst5_dataset(data_path, seed=123):
     with open(test_path, encoding='utf-8') as f:
         texts = f.read()
         result = [text.split('\t') for text in texts.split('\n')]
-        result = result[1:-1]
+        result = result[0:-1]
         test_texts = [element[1].strip() for element in result]
         test_labels = [int(element[0][-1])-1 for element in result]
 
@@ -270,7 +267,7 @@ def load_dbpedia_dataset(data_path, seed=123):
     train_texts = []
     train_labels = []
     train_path = os.path.join(dbpedia_data_path, 'train.csv')
-    train_data = pd.read_csv(train_path)
+    train_data = pd.read_csv(train_path, header=None)
     train_data.columns = ['class', 'title', 'content']
     train_texts = train_data['content'].tolist()
     train_labels = train_data['class'].tolist()
@@ -280,7 +277,7 @@ def load_dbpedia_dataset(data_path, seed=123):
     test_texts = []
     test_labels = []
     test_path = os.path.join(dbpedia_data_path, 'test.csv')
-    test_data = pd.read_csv(test_path)
+    test_data = pd.read_csv(test_path, header=None)
     test_data.columns = ['class', 'title', 'content']
     test_texts = test_data['content'].tolist()
     test_labels = test_data['class'].tolist()
@@ -302,7 +299,7 @@ def load_ag_news_dataset(data_path, seed=123):
     train_texts = []
     train_labels = []
     train_path = os.path.join(ag_news_data_path, 'train.csv')
-    train_data = pd.read_csv(train_path)
+    train_data = pd.read_csv(train_path, header=None)
     train_data.columns = ['class', 'title', 'content']
     train_texts = train_data['content'].tolist()
     train_labels = train_data['class'].tolist()
@@ -312,7 +309,7 @@ def load_ag_news_dataset(data_path, seed=123):
     test_texts = []
     test_labels = []
     test_path = os.path.join(ag_news_data_path, 'test.csv')
-    test_data = pd.read_csv(test_path)
+    test_data = pd.read_csv(test_path, header=None)
     test_data.columns = ['class', 'title', 'content']
     test_texts = test_data['content'].tolist()
     test_labels = test_data['class'].tolist()
@@ -334,7 +331,7 @@ def load_yelp_full_dataset(data_path, seed=123):
     train_texts = []
     train_labels = []
     train_path = os.path.join(yelp_data_path, 'train.csv')
-    train_data = pd.read_csv(train_path)
+    train_data = pd.read_csv(train_path, header=None)
     train_data.columns = ['class', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
@@ -344,7 +341,7 @@ def load_yelp_full_dataset(data_path, seed=123):
     test_texts = []
     test_labels = []
     test_path = os.path.join(yelp_data_path, 'test.csv')
-    test_data = pd.read_csv(test_path)
+    test_data = pd.read_csv(test_path, header=None)
     test_data.columns = ['class', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
@@ -366,7 +363,7 @@ def load_yelp_polarity_dataset(data_path, seed=123):
     train_texts = []
     train_labels = []
     train_path = os.path.join(yelp_data_path, 'train.csv')
-    train_data = pd.read_csv(train_path)
+    train_data = pd.read_csv(train_path, header=None)
     train_data.columns = ['class', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
@@ -376,7 +373,7 @@ def load_yelp_polarity_dataset(data_path, seed=123):
     test_texts = []
     test_labels = []
     test_path = os.path.join(yelp_data_path, 'test.csv')
-    test_data = pd.read_csv(test_path)
+    test_data = pd.read_csv(test_path, header=None)
     test_data.columns = ['class', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
@@ -398,7 +395,7 @@ def load_amazon_full_dataset(data_path, seed=123):
     train_texts = []
     train_labels = []
     train_path = os.path.join(amazon_data_path, 'train.csv')
-    train_data = pd.read_csv(train_path)
+    train_data = pd.read_csv(train_path, header=None)
     train_data.columns = ['class', 'title', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
@@ -408,7 +405,7 @@ def load_amazon_full_dataset(data_path, seed=123):
     test_texts = []
     test_labels = []
     test_path = os.path.join(amazon_data_path, 'test.csv')
-    test_data = pd.read_csv(test_path)
+    test_data = pd.read_csv(test_path, header=None)
     test_data.columns = ['class', 'title', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
@@ -430,7 +427,7 @@ def load_amazon_polarity_dataset(data_path, seed=123):
     train_texts = []
     train_labels = []
     train_path = os.path.join(amazon_data_path, 'train.csv')
-    train_data = pd.read_csv(train_path)
+    train_data = pd.read_csv(train_path, header=None)
     train_data.columns = ['class', 'title', 'text']
     train_texts = train_data['text'].tolist()
     train_labels = train_data['class'].tolist()
@@ -440,7 +437,7 @@ def load_amazon_polarity_dataset(data_path, seed=123):
     test_texts = []
     test_labels = []
     test_path = os.path.join(amazon_data_path, 'test.csv')
-    test_data = pd.read_csv(test_path)
+    test_data = pd.read_csv(test_path, header=None)
     test_data.columns = ['class', 'title', 'text']
     test_texts = test_data['text'].tolist()
     test_labels = test_data['class'].tolist()
@@ -462,8 +459,9 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     train_texts = []
     train_labels = []
     train_path = os.path.join(yahoo_answers_data_path, 'train.csv')
-    train_data = pd.read_csv(train_path)
+    train_data = pd.read_csv(train_path, header=None)
     train_data.columns = ['class', 'title', 'content', 'answer']
+    train_data = train_data[['class', 'answer']]
     train_data = train_data.dropna()
     train_texts = train_data['answer'].tolist()
     train_labels = train_data['class'].tolist()
@@ -473,8 +471,9 @@ def load_yahoo_answers_dataset(data_path, seed=123):
     test_texts = []
     test_labels = []
     test_path = os.path.join(yahoo_answers_data_path, 'test.csv')
-    test_data = pd.read_csv(test_path)
+    test_data = pd.read_csv(test_path, header=None)
     test_data.columns = ['class', 'title', 'content', 'answer']
+    test_data = test_data[['class', 'answer']]
     test_data = test_data.dropna()
     test_texts = test_data['answer'].tolist()
     test_labels = test_data['class'].tolist()
@@ -554,7 +553,7 @@ def create_dataset(text, labels, slice_start=None, slice_end=None):
         slice_end = len(text)
     return TextDataset(text[slice_start:slice_end], labels[slice_start:slice_end])
 
-def split_datasets(train, labeled_proportion, validation_proportion, test=None, unlabeled=None, validation=None):
+def split_datasets(train, labeled_proportion, validation_proportion, test=None, unlabeled=None, validation=None, balance_classes=False):
     '''
     Takes as input three tuples - (train_text, train_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)
     Outputs (train_text, train_labels), (validation_text, validation_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)
@@ -623,3 +622,4 @@ def get_dataset_from_dataloader(dataloader, device):
     
     return texts, labels
 
+load_yahoo_answers_dataset('../')
