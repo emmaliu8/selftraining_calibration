@@ -141,11 +141,14 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         # unlabeled_features = torch.load('features_unlabeled_data.pt')
         # unlabeled_labels = torch.load('labels_unlabeled_data.pt')
 
-        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), labeled_proportion=0.1, validation_proportion=0.1)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), labeled_proportion=0.1, validation_proportion=0.1)
+
+        if validation is not None:
+            validation_features, validation_labels = validation
+            validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
-        validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
         unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
     else:
         train, unlabeled, test = load_imdb_dataset('../')
@@ -164,11 +167,14 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         test = featurize_dataset(test_dataset, device, batch_size, 'test_data.pt')
 
         # split datasets to get validation and updated train and unlabeled sets
-        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test=test, unlabeled=unlabeled, labeled_proportion=0.1, validation_proportion=0.9)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test=test, unlabeled=unlabeled, labeled_proportion=0.1, validation_proportion=0.9)
+
+        if validation is not None:
+            validation_features, validation_labels = validation
+            validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
-        validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
         unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
 
     if load_model:
@@ -224,6 +230,8 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    no_calibration = not calibrate 
+
     if load_features: 
         train_features = torch.load(dataset + '_features_train_data.pt')
         train_labels = torch.load(dataset + '_labels_train_data.pt')
@@ -237,12 +245,15 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
         unlabeled_labels = torch.load(dataset + '_labels_unlabeled_data.pt')
         # unlabeled_features, unlabeled_labels = combine_dataset_files(dataset, 'unlabeled', '')
 
-        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), unlabeled=(unlabeled_features, unlabeled_labels), labeled_proportion=labeled_percentage, validation_proportion=validation_percentage)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), unlabeled=(unlabeled_features, unlabeled_labels), labeled_proportion=labeled_percentage, validation_proportion=validation_percentage, no_calibration=no_calibration)
+
+        if validation is not None:
+            validation_features, validation_labels = validation 
+            validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
 
         train_dataset_size = len(train_labels)
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
-        validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
         unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
     else:
         dataset_name_to_load_func = {'imdb': load_imdb_dataset, 'sst2': load_sst2_dataset, 'sst5': load_sst5_dataset, 'amazon_elec': load_amazon_elec_dataset, 'amazon_elec_binary': load_amazon_elec_binary_dataset, 'dbpedia': load_dbpedia_dataset, 'ag_news': load_ag_news_dataset, 'yelp_full': load_yelp_full_dataset, 'yelp_polarity': load_yelp_polarity_dataset, 'amazon_full': load_amazon_full_dataset, 'amazon_polarity': load_amazon_polarity_dataset, 'yahoo': load_yahoo_answers_dataset, 'twenty_news': load_twenty_news_dataset, 'airport_tweets': load_airport_tweets_dataset, 'modified_amazon_elec_binary': load_modified_amazon_elec_binary_dataset}
@@ -285,14 +296,17 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
             unlabeled = featurize_dataset(unlabeled_dataset, device, batch_size, dataset, 'unlabeled_data.pt')
 
         # split datasets to get validation and updated train and unlabeled sets
-        (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test=test, unlabeled=unlabeled, labeled_proportion=labeled_percentage, validation_proportion=validation_percentage)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test=test, unlabeled=unlabeled, labeled_proportion=labeled_percentage, validation_proportion=validation_percentage, no_calibration=no_calibration)
+
+        if validation is not None:
+            validation_features, validation_labels = validation 
+            validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
 
         train_dataset_size = len(train_labels)
 
         # create dataloaders 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
-        validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
         unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
 
     # metrics - also generate plots w/ probabilty distributions and calibration curves for each iteration
@@ -356,7 +370,10 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
             print('Exited on iteration ', i)
             break
 
-        train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None)
+        if calibrate:
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, train_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None, validation_dataloader=validation_dataloader)
+        else:
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, train_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None)
 
 
         train_dataset_size += num_samples_added_to_train
