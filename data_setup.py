@@ -553,7 +553,7 @@ def create_dataset(text, labels, slice_start=None, slice_end=None):
         slice_end = len(text)
     return TextDataset(text[slice_start:slice_end], labels[slice_start:slice_end])
 
-def split_datasets(train, labeled_proportion, validation_proportion, test=None, unlabeled=None, validation=None, balance_classes=False):
+def split_datasets(train, labeled_proportion, validation_proportion, test=None, unlabeled=None, validation=None, balance_classes=False, no_calibration=False):
     '''
     Takes as input three tuples - (train_text, train_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)
     Outputs (train_text, train_labels), (validation_text, validation_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)
@@ -563,24 +563,82 @@ def split_datasets(train, labeled_proportion, validation_proportion, test=None, 
     Remaining unused samples from input train added to unlabeled set
     labeled_proportion + validation_proportion must be <= 1
     '''
+    if no_calibration is False:
+        if labeled_proportion + validation_proportion > 1:
+            raise Exception('labeled_proportion and validation_proportion cannot sum to more than 1')
+    else:
+        if labeled_proportion > 1:
+            raise Exception('labeled_proportion cannot be greater than 1')
+
+    original_train_length = len(train[1])
+
+    if balance_classes:
+        unique_classes = np.sort(np.unique(np.array(train[1])))
+
+        train_labels = np.array(train[1])
+        train_texts = np.array(train[0])
+        idx = np.argsort(train_labels)
+
+        train_labels = list(np.array(train_labels)[idx])
+        train_texts = list(np.array(train_texts)[idx])
+
+        new_train_size = int(labeled_proportion * len(train[1]))
+        num_per_class = int(1.0 * new_train_size / len(unique_classes)) # rounds down
+
+        idx_for_each_class = []
+        for class_label in unique_classes:
+            class_idx = train_labels.index(class_label)
+            idx_for_each_class.append(class_idx)
+        idx_for_each_class.append(len(train_labels))
+        
+        new_train_texts = []
+        new_train_labels = []
+        old_train_texts = []
+        old_train_labels = []
+
+        for i in range(len(idx_for_each_class)-1):
+            index = idx_for_each_class[i]
+            next_index = idx_for_each_class[i+1]
+
+            new_train_texts.append(train_texts[index:index+num_per_class])
+            new_train_labels.append(train_labels[index:index+num_per_class])
+            old_train_texts.append(train_texts[index+num_per_class:next_index])
+            old_train_labels.append(train_labels[index+num_per_class:next_index])
+
+        # shuffle
+        random.seed(123)
+        zipped_new_train = list(zip(new_train_texts, new_train_labels))
+        random.shuffle(zipped_new_train)
+        new_train_texts, new_train_labels = zip(*zipped_new_train)
+
+        zipped_old_train = list(zip(old_train_texts, old_train_labels))
+        random.shuffle(zipped_old_train)
+        old_train_texts, old_train_labels = zip(*zipped_old_train)
+
+        new_train = new_train_texts, new_train_labels 
+        old_train = old_train_texts, old_train_labels
+    else:
+        new_train_size = int(labeled_proportion * len(train[1]))
+        new_train = train[0][:new_train_size], train[1][:new_train_size]
+        old_train = train[0][new_train_size:], train[1][new_train_size:]
+
     if test is None:
-        # make test set 20% of train
-        new_test_size = int(0.2 * len(train[1]))
-        test = train[0][:new_test_size], train[1][:new_test_size]
-        train = train[0][new_test_size:], train[1][new_test_size:]
+        # make test set 20% of original train
+        new_test_size = int(0.2 * original_train_length)
+        test = old_train[0][:new_test_size], old_train[1][:new_test_size]
+        old_train = old_train[0][new_test_size:], old_train[1][new_test_size:]
 
-    if labeled_proportion + validation_proportion > 1:
-        raise Exception('labeled_proportion and validation_proportion cannot sum to more than 1')
-    new_train_size = int(labeled_proportion * len(train[1]))
-    validation_size = int(validation_proportion * len(train[1]))
-
-    new_train = train[0][:new_train_size], train[1][:new_train_size]
-    validation = train[0][new_train_size:new_train_size + validation_size], train[1][new_train_size: new_train_size + validation_size]
+    if no_calibration is False:
+        validation_size = int(validation_proportion * original_train_length)
+        validation = old_train[0][:validation_size], old_train[1][:validation_size]
+        old_train = old_train[0][validation_size:], old_train[1][validation_size:]
+    else:
+        validation = None
     
     if unlabeled is None:
-        new_unlabeled_text = np.array(train[0][new_train_size + validation_size:])
+        new_unlabeled_text = np.array(old_train[0])
     else:
-        new_unlabeled_text = np.concatenate((unlabeled[0], train[0][new_train_size + validation_size:]), axis=0)
+        new_unlabeled_text = np.concatenate((unlabeled[0], old_train[0]), axis=0)
     new_unlabeled_labels = np.full((new_unlabeled_text.shape[0], 1), -1)
     new_unlabeled = (new_unlabeled_text, new_unlabeled_labels)
     return new_train, validation, test, new_unlabeled
