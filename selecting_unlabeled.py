@@ -5,7 +5,7 @@ from data_setup import TextDataset, get_dataset_from_dataloader
 from model_training import get_model_predictions
 
 
-def unlabeled_samples_to_train(models, device, train_dataloader, validation_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None, margin_only=None, margin=False, diff_between_top_two_classes=None, balance_classes=False):
+def unlabeled_samples_to_train(models, device, train_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None, margin_only=None, margin=False, diff_between_top_two_classes=None, balance_classes=False, validation_dataloader=None, retrain_from_scratch=True):
     aggregate_pre_softmax_probs, aggregate_post_softmax_probs, aggregate_predicted_probs, aggregate_predicted_labels, _, all_unlabeled_inputs = get_model_predictions(unlabeled_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True, unlabeled=True)
 
     if calibrate:
@@ -102,10 +102,14 @@ def unlabeled_samples_to_train(models, device, train_dataloader, validation_data
 
     unlabeled_dataloader = DataLoader(TextDataset(unlabeled_texts, np.full((unlabeled_texts.shape[0], 1), -1)), batch_size=batch_size)
 
-    train_text, train_labels = get_dataset_from_dataloader(train_dataloader, device)
-    train_text = np.concatenate((train_text, unlabeled_to_train_texts))
-    train_labels.extend(unlabeled_to_train_labels)
-    train_dataloader = DataLoader(TextDataset(train_text, train_labels), batch_size=batch_size)
+    if retrain_from_scratch:
+        train_text, train_labels = get_dataset_from_dataloader(train_dataloader, device)
+        train_text = np.concatenate((train_text, unlabeled_to_train_texts))
+        train_labels.extend(unlabeled_to_train_labels)
+        train_dataloader = DataLoader(TextDataset(train_text, train_labels), batch_size=batch_size)
+    else:
+        # train_dataloader should only contain new samples
+        train_dataloader = DataLoader(TextDataset(unlabeled_to_train_texts, unlabeled_to_train_labels), batch_size=batch_size)
 
     return train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples_before
     
