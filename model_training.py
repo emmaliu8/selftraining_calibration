@@ -4,9 +4,18 @@ from torch import nn
 import numpy as np
 import calibration
 
-def model_training(model, device, num_epochs, train_loader, criterion, file_name = None, label_smoothing=False, label_smoothing_alpha=0.1, learning_rate=0.001):
+def model_training(model, 
+                   device, 
+                   train_loader,
+                   criterion,
+                   num_epochs=10, 
+                   file_name = None, 
+                   label_smoothing=False, # can only be alpha method so either True or False
+                   label_smoothing_alpha=0.1, 
+                   learning_rate=0.001):
+
     model = model.to(device)
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate) # add changing optimizer + parameters used 
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate) 
 
     model.train()
 
@@ -33,7 +42,12 @@ def model_training(model, device, num_epochs, train_loader, criterion, file_name
 
     return model
 
-def get_model_predictions(dataloader, device, models, use_pre_softmax=False, use_post_softmax=False, unlabeled=False):
+def get_model_predictions(dataloader, 
+                          device, 
+                          models, 
+                          use_pre_softmax=False, 
+                          use_post_softmax=True, # default bc best option for ensembles and does not matter for when there is only one model
+                          unlabeled=False):
     all_pre_softmax_probs = []
     all_post_softmax_probs = []
     all_predicted_probs = []

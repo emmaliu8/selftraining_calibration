@@ -855,10 +855,10 @@ def calibrate_matrix_scaling(dataloader, device, models, pre_softmax_probs_predi
     matrix_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return matrix_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_full_dirichlet(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
-    pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
+# def calibrate_full_dirichlet(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
+#     pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
 
-    full_dirichlet = FullDirichletCalibrator()
-    full_dirichlet.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
-    return full_dirichlet.predict(pre_softmax_probs_predict)
+#     full_dirichlet = FullDirichletCalibrator()
+#     full_dirichlet.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
+#     return full_dirichlet.predict(pre_softmax_probs_predict)
 

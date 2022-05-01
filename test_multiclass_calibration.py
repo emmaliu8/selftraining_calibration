@@ -75,7 +75,7 @@ def test_calibration_multiclass(calibration_method, folder_name, load_model = Fa
         model.to(device)
     else:
         model = TextClassificationModel(768, 5)
-        model = model_training(model, device, 100, train_dataloader, criterion, 'sst5_test_calibration_model.pt')
+        model = model_training(model, device, train_dataloader, criterion, num_epochs=100, file_name='sst5_test_calibration_model.pt')
 
     methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling, 'platt_scaling': calibrate_platt_scaling, 'equal_freq_binning': calibrate_equal_freq_binning, 'bbq': calibrate_bbq, 'ensemble_temperature_scaling': calibrate_ensemble_temperature_scaling, 'enir': calibrate_enir, 'platt_binning': calibrate_platt_binner, 'vector_scaling': calibrate_vector_scaling, 'matrix_scaling': calibrate_matrix_scaling}
     calibration_class = methods[calibration_method]

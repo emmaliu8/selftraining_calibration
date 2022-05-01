@@ -553,7 +553,13 @@ def create_dataset(text, labels, slice_start=None, slice_end=None):
         slice_end = len(text)
     return TextDataset(text[slice_start:slice_end], labels[slice_start:slice_end])
 
-def split_datasets(train, labeled_proportion, validation_proportion, test=None, unlabeled=None, validation=None, balance_classes=False, no_calibration=False):
+def split_datasets(train, 
+                   labeled_proportion, 
+                   validation_proportion=None, 
+                   test=None, 
+                   unlabeled=None, 
+                   balance_classes=False, 
+                   no_calibration=False):
     '''
     Takes as input three tuples - (train_text, train_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)
     Outputs (train_text, train_labels), (validation_text, validation_labels), (test_text, test_labels), (unlabeled_text, unlabeled_labels)

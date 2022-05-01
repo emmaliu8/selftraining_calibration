@@ -25,7 +25,7 @@ batch_size = 64
 threshold = 0.8 # used to determine which unlabeled examples have high enough confidence
 num_classes = 2 
 num_epochs = 10
-learning_rate = 0.1
+# learning_rate = 0.1
 num_self_training_iterations = 1000000
 
 criterion = nn.CrossEntropyLoss() 
@@ -114,7 +114,7 @@ def tune_model(labeled_percentage=0.2, validation_percentage=0.1):
                     validation_dataloader = DataLoader(TextDataset(model_validation_features, model_validation_labels), batch_size=batch_size_value)
 
                     model = TextClassificationModel(768, 2, initrange=initrange_value)
-                    trained_model = model_training(model, device, epoch_value, train_dataloader, criterion, learning_rate=lr_value)
+                    trained_model = model_training(model, device, train_dataloader, criterion, num_epochs = epoch_value, learning_rate=lr_value)
 
                     # evaluate trained model on validation data 
                     _, _, _, predicted_labels, true_labels, _ = get_model_predictions(validation_dataloader, device, [trained_model], use_pre_softmax=False, use_post_softmax=True)
@@ -141,7 +141,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         # unlabeled_features = torch.load('features_unlabeled_data.pt')
         # unlabeled_labels = torch.load('labels_unlabeled_data.pt')
 
-        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), labeled_proportion=0.1, validation_proportion=0.1)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), labeled_proportion=0.1, test=(test_features, test_labels), validation_proportion=0.1)
 
         if validation is not None:
             validation_features, validation_labels = validation
@@ -167,7 +167,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         test = featurize_dataset(test_dataset, device, batch_size, 'test_data.pt')
 
         # split datasets to get validation and updated train and unlabeled sets
-        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test=test, unlabeled=unlabeled, labeled_proportion=0.1, validation_proportion=0.9)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, labeled_proportion=0.1,test=test, unlabeled=unlabeled, validation_proportion=0.9)
 
         if validation is not None:
             validation_features, validation_labels = validation
@@ -183,7 +183,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
         model.to(device)
     else:
         model = TextClassificationModel(768, 5)
-        model = model_training(model, device, 100, train_dataloader, criterion, 'sst5_test_calibration_model.pt')
+        model = model_training(model, device, train_dataloader, criterion, num_epochs=100, file_name='sst5_test_calibration_model.pt')
 
     methods = {'histogram_binning': calibrate_histogram_binning, 'isotonic_regression': calibrate_isotonic_regression, 'beta_calibration': calibrate_beta_calibration, 'temp_scaling': calibrate_temperature_scaling, 'platt_scaling': calibrate_platt_scaling, 'equal_freq_binning': calibrate_equal_freq_binning, 'bbq': calibrate_bbq, 'ensemble_temperature_scaling': calibrate_ensemble_temperature_scaling, 'enir': calibrate_enir, 'platt_binning': calibrate_platt_binner, 'vector_scaling': calibrate_vector_scaling, 'matrix_scaling': calibrate_matrix_scaling}
     calibration_class = methods[calibration_method]
@@ -199,7 +199,7 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
     if calibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling'):
         calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_pre_softmax_probs, label_smoothing)
     elif calibration_method in ('vector_scaling', 'matrix_scaling'):
-        calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_pre_softmax_probs, label_smoothing, num_classes=5) # testing on sst5
+        calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_pre_softmax_probs, label_smoothing, num_classes=num_classes) 
     else:
         calibrated_train_probs = calibration_class(validation_dataloader, device, [model], train_post_softmax_probs, label_smoothing)
 
@@ -222,7 +222,28 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
 
     plot_calibration_curve(test_true_labels, calibrated_test_probs, folder_name + '/' + calibration_method + '_test_after_calibration.jpg')
 
-def main(models, dataset, criterion, recalibration_method, folder_name, load_features = False, calibrate = True, label_smoothing = 'none', label_smoothing_alpha=None, retrain_models_from_scratch=True, label_smoothing_model_training=False, label_smoothing_model_training_alpha=0.1, k_best=None, k=1000, k_best_and_threshold=None, labeled_percentage=0.2, validation_percentage=0.1):
+def main(models, 
+         dataset, 
+         criterion, 
+         recalibration_method, 
+         folder_name, 
+         load_features = False, 
+         calibrate = True, 
+         label_smoothing = 'none', 
+         label_smoothing_alpha=None, 
+         retrain_models_from_scratch=True, 
+         label_smoothing_model_training=False, 
+         label_smoothing_model_training_alpha=0.1, 
+         k_best=None, 
+         k=1000, 
+         k_best_and_threshold=None, 
+         labeled_percentage=0.2,
+         validation_percentage=0.1, 
+         learning_rate=0.1, 
+         balance_classes=False, 
+         margin=False, 
+         margin_only=False, 
+         diff_between_top_two_classes=0.3):
 
     # reproducible
     torch.manual_seed(0)
@@ -233,19 +254,28 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
     no_calibration = not calibrate 
 
     if load_features: 
-        train_features = torch.load(dataset + '_features_train_data.pt')
-        train_labels = torch.load(dataset + '_labels_train_data.pt')
-        # train_features, train_labels = combine_dataset_files(dataset, 'train', '')
+        # train_features = torch.load(dataset + '_features_train_data.pt')
+        # train_labels = torch.load(dataset + '_labels_train_data.pt')
+        train = combine_dataset_files(dataset, 'train', '')
 
-        test_features = torch.load(dataset + '_features_test_data.pt')
-        test_labels = torch.load(dataset + '_labels_test_data.pt')
-        # test_features, test_labels = combine_dataset_files(dataset, 'test', '')
+        # test_features = torch.load(dataset + '_features_test_data.pt')
+        # test_labels = torch.load(dataset + '_labels_test_data.pt')
+        # first check if test set for this dataset exists
+        if os.path.exists(dataset + '_1_features_test_data.pt'):
+            test = combine_dataset_files(dataset, 'test', '')
+        else:
+            test = None
 
-        unlabeled_features = torch.load(dataset + '_features_unlabeled_data.pt')
-        unlabeled_labels = torch.load(dataset + '_labels_unlabeled_data.pt')
-        # unlabeled_features, unlabeled_labels = combine_dataset_files(dataset, 'unlabeled', '')
+        # unlabeled_features = torch.load(dataset + '_features_unlabeled_data.pt')
+        # unlabeled_labels = torch.load(dataset + '_labels_unlabeled_data.pt')
+        # first check if unlabeled set for this dataset exists
+        if os.path.exists(dataset + '_1_features_unlabeled_data.pt'):
+            unlabeled = combine_dataset_files(dataset, 'unlabeled', '')
+        else:
+            unlabeled = None 
 
-        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), unlabeled=(unlabeled_features, unlabeled_labels), labeled_proportion=labeled_percentage, validation_proportion=validation_percentage, no_calibration=no_calibration)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, labeled_proportion=labeled_percentage, test=test, unlabeled=unlabeled, validation_proportion=validation_percentage, no_calibration=no_calibration, balance_classes=balance_classes)
+        # (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), unlabeled=(unlabeled_features, unlabeled_labels), labeled_proportion=labeled_percentage, validation_proportion=validation_percentage)
 
         if validation is not None:
             validation_features, validation_labels = validation 
@@ -284,19 +314,19 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
             unlabeled_dataset = create_dataset(unlabeled[0], unlabeled[1])
 
         # extract features 
-        if dataset != 'sst2' and dataset != 'sst5' and dataset != 'airport_tweets': # TEMPORARY
-            train = featurize_dataset(train_dataset, device, batch_size, dataset, 'train_data.pt')
-        else:
-            train_features = torch.load(dataset + '_features_train_data.pt')
-            train_labels = torch.load(dataset + '_labels_train_data.pt')
-            train = train_features, train_labels
+        # if dataset != 'sst2' and dataset != 'sst5' and dataset != 'airport_tweets': # TEMPORARY
+        train = featurize_dataset(train_dataset, device, batch_size, dataset, 'train_data.pt')
+        # else:
+        #     train_features = torch.load(dataset + '_features_train_data.pt')
+        #     train_labels = torch.load(dataset + '_labels_train_data.pt')
+        #     train = train_features, train_labels
         if test is not None:
             test = featurize_dataset(test_dataset, device, batch_size, dataset, 'test_data.pt')
         if unlabeled is not None:
             unlabeled = featurize_dataset(unlabeled_dataset, device, batch_size, dataset, 'unlabeled_data.pt')
 
         # split datasets to get validation and updated train and unlabeled sets
-        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, test=test, unlabeled=unlabeled, labeled_proportion=labeled_percentage, validation_proportion=validation_percentage, no_calibration=no_calibration)
+        (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, labeled_proportion=labeled_percentage, test=test, unlabeled=unlabeled, validation_proportion=validation_percentage, no_calibration=no_calibration, balance_classes=balance_classes)
 
         if validation is not None:
             validation_features, validation_labels = validation 
@@ -325,7 +355,7 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
 
         # ensure new model for each iteration
         for j in range(len(models)):
-            models[j] = model_training(models[j], device, num_epochs, train_dataloader, criterion, label_smoothing=label_smoothing_model_training, label_smoothing_alpha=label_smoothing_model_training_alpha, learning_rate = learning_rate)
+            models[j] = model_training(models[j], device, train_dataloader, criterion, num_epochs = num_epochs, label_smoothing=label_smoothing_model_training, label_smoothing_alpha=label_smoothing_model_training_alpha, learning_rate = learning_rate)
 
         # predictions on test set
         pre_softmax_probs, post_softmax_probs, predicted_probs, predicted_labels, true_labels, _ = get_model_predictions(test_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True)
@@ -371,9 +401,9 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
             break
 
         if calibrate:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, train_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None, validation_dataloader=validation_dataloader)
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, unlabeled_dataloader, num_classes=num_classes, calibrate=True, validation_dataloader=validation_dataloader, recalibration_method=recalibration_method, label_smoothing=label_smoothing, label_smoothing_alpha=label_smoothing_alpha, retrain_from_scratch=retrain_models_from_scratch, train_dataloader=train_dataloader, batch_size=64, margin=margin, margin_only=margin_only, k_best_and_threshold=k_best_and_threshold, k_best=k_best, threshold=threshold, k = k, diff_between_top_two_classes=diff_between_top_two_classes)
         else:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, train_dataloader, unlabeled_dataloader, calibrate, recalibration_method, calibration_class, label_smoothing, threshold, batch_size, k_best=None, k=None, k_best_and_threshold=None)
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, unlabeled_dataloader, num_classes=num_classes, calibrate=False, label_smoothing=label_smoothing, label_smoothing_alpha=label_smoothing_alpha, retrain_from_scratch=retrain_models_from_scratch, train_dataloader=train_dataloader, batch_size=64, margin=margin, margin_only=margin_only, k_best_and_threshold=k_best_and_threshold, k_best=k_best, threshold=threshold, k = k, diff_between_top_two_classes=diff_between_top_two_classes)
 
 
         train_dataset_size += num_samples_added_to_train
@@ -388,10 +418,11 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
 
         # reset models to re-train from scratch in next iteration
         if retrain_models_from_scratch:
-            for model in models:
-                for layer in model.children():
-                    if hasattr(layer, 'reset_parameters'):
-                        layer.reset_parameters()
+            for i in range(len(models)):
+                old_model = models[i]
+                new_model_class = old_model.__class__ 
+                new_model = new_model_class(old_model.embed_dim, old_model.num_class, initrange=old_model.initrange) # assumes model of type TextClassificationModel
+                models[i] = new_model
 
     # plot metrics
     plt.figure()
@@ -420,54 +451,66 @@ def main(models, dataset, criterion, recalibration_method, folder_name, load_fea
     metrics = pd.DataFrame(data=metrics_dict)
     metrics.to_csv(folder_name + '/' + dataset + '_' + recalibration_method + '_metrics.csv')
 
+def running_test_calibration():
+    # testing calibration
+    print('temperature scaling')
+    test_calibration('temp_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('histogram binning')
+    test_calibration('histogram_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('isotonic regression')
+    test_calibration('isotonic_regression', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('beta calibration')
+    test_calibration('beta_calibration', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('platt scaling')
+    test_calibration('platt_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('equal_freq_binning')
+    test_calibration('equal_freq_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('ensemble_temperature_scaling')
+    test_calibration('ensemble_temperature_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('bbq')
+    test_calibration('bbq', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('enir')
+    test_calibration('enir', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('platt_binning')
+    test_calibration('platt_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('vector_scaling')
+    test_calibration('vector_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
+    print('matrix_scaling')
+    test_calibration('matrix_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
 
-# testing calibration
-# print('temperature scaling')
-# test_calibration('temp_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('histogram binning')
-# test_calibration('histogram_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('isotonic regression')
-# test_calibration('isotonic_regression', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('beta calibration')
-# test_calibration('beta_calibration', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('platt scaling')
-# test_calibration('platt_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('equal_freq_binning')
-# test_calibration('equal_freq_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('ensemble_temperature_scaling')
-# test_calibration('ensemble_temperature_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('bbq')
-# test_calibration('bbq', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('enir')
-# test_calibration('enir', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('platt_binning')
-# test_calibration('platt_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-# print('vector_scaling')
-# test_calibration('vector_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
-# print('matrix_scaling')
-# test_calibration('matrix_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
+# without calibration experiments
+# folder_index = 50
+# for labeled_prop in [1.0]:
+#     for lr in [0.1, 0.01, 0.001]:
+#         model = TextClassificationModel(768, 2, initrange=0.2)
+#         folder_name = 'self_training_test' + str(folder_index)
+#         folder_exists = os.path.exists(folder_name)
+#         if not folder_exists:
+#             os.makedirs(folder_name)
+#         main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=False, labeled_percentage=labeled_prop, learning_rate=lr, validation_percentage=0)
+#         folder_index += 1
 
-# model = TextClassificationModel(768, 2)
-# main([model], criterion, 'temp_scaling', 'self_training_test4', load_features = True, calibrate=False)
-
-# model1 = TextClassificationModel(768, 2)
-# model2 = TextClassificationModel(768, 2, 0.2)
-# model3 = TextClassificationModel(768, 2, 0.8)
-# main([model1], criterion, 'temp_scaling', 'self_training_test12', load_features = True, calibrate=False, retrain_models_from_scratch=False)
+# with temp scaling experiments
+# folder_index = 80
+# for (labeled_prop, validation_prop) in [(0.0005, 0.0005), (0.0025, 0.0025), (0.005, 0.005), (0.025, 0.025), (0.1, 0.1), (0.25, 0.25), (0.5, 0.5), (0.75, 0.25), (0.375, 0.125), (0.15, 0.05), (0.0375, 0.0125), (0.0075, 0.0025), (0.00075, 0.00025), (0.00375, 0.00125)]:
+#         model = TextClassificationModel(768, 2, initrange=0.2)
+#         folder_name = 'self_training_test' + str(folder_index)
+#         folder_exists = os.path.exists(folder_name)
+#         if not folder_exists:
+#             os.makedirs(folder_name)
+#         main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=True, labeled_percentage=labeled_prop, validation_percentage=validation_prop, learning_rate=lr)
+#         folder_index += 1
 
 
-# datasets = ['amazon_elec', 'amazon_full']
-# model = TextClassificationModel(768, 5) # use num_classes when defining TextClassificationModel
-# for dataset in datasets:
-#     print(dataset)
-#     main([model], dataset, criterion, 'temp_scaling', 'self_training_test13', load_features = False, calibrate = False)
 
-# print('modified_amazon_elec_binary')
-# main([model], 'sst5', criterion, 'temp_scaling', 'self_training_test14', load_features = True, calibrate = True)
 
-# tune_model()
 
-run_experiments()
+
+
+
+
+
+
 
 
 

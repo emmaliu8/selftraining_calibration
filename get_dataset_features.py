@@ -41,7 +41,6 @@ def main(dataset):
     if unlabeled is not None:
         unlabeled_dataset = create_dataset(unlabeled[0], unlabeled[1])
 
-    # extract features 
     train = featurize_dataset(train_dataset, device, batch_size, dataset, 'train_data.pt')
     if test is not None:
         test = featurize_dataset(test_dataset, device, batch_size, dataset, 'test_data.pt')
@@ -50,4 +49,3 @@ def main(dataset):
 
 print('amazon_full')
 main('amazon_full')
-
