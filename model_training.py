@@ -4,6 +4,8 @@ from torch import nn
 import numpy as np
 import calibration
 
+from data_setup import get_dataset_from_dataloader
+
 def model_training(model, 
                    device, 
                    train_loader,
@@ -51,57 +53,38 @@ def get_model_predictions(dataloader,
     all_pre_softmax_probs = []
     all_post_softmax_probs = []
     all_predicted_probs = []
-    true_labels = None
-    texts = None
+
+    # first get texts and true labels
+    texts, true_labels = get_dataset_from_dataloader(dataloader, device)
 
     for model in models:
         pre_softmax_probs = []
         post_softmax_probs = []
         predicted_probs = []
-        get_true_labels = False
-        get_texts = False
-
-        if true_labels is None and not unlabeled: # need to get true_labels once (same for all models)
-            true_labels = []
-            get_true_labels = True
-        if texts is None: 
-            texts = []
-            get_texts = True
+        predicted_labels = [] # temp for testing ensembling
 
         model.eval()
 
         with torch.no_grad():
             for (_, batch) in enumerate(dataloader):
-                if unlabeled:
-                    inputs = batch['Text'].to(device)
-                else:
-                    inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
+                inputs = batch['Text'].to(device)
 
                 pre_softmax = model(inputs)
 
                 sm = nn.Softmax(dim=1)
                 post_softmax = sm(pre_softmax)
 
-                predicted_prob, _ = torch.max(post_softmax.data, 1)
+                predicted_prob, predicted_label = torch.max(post_softmax.data, 1)
 
                 pre_softmax_probs.append(pre_softmax)
                 post_softmax_probs.append(post_softmax)
                 predicted_probs.extend(predicted_prob.cpu().numpy())
-                
-                if get_true_labels:
-                    true_labels.extend(labels.cpu().numpy())
-                if get_texts:
-                    texts.append(inputs)
+                predicted_labels.extend(predicted_label.cpu().numpy())
 
-    
         pre_softmax_probs = torch.cat(pre_softmax_probs)
         post_softmax_probs = torch.cat(post_softmax_probs)
         predicted_probs = torch.tensor(np.array(predicted_probs).reshape(-1, 1))
-
-        if get_true_labels:
-            true_labels = np.array(true_labels)
-        if get_texts:
-            texts = torch.cat(texts).cpu().numpy()
+        predicted_labels = np.array(predicted_labels)
 
         all_pre_softmax_probs.append(pre_softmax_probs)
         all_post_softmax_probs.append(post_softmax_probs)
@@ -119,6 +102,12 @@ def get_model_predictions(dataloader,
     # get predicted_labels 
     aggregate_predicted_probs = torch.mean(torch.stack(all_predicted_probs), dim=0)
     _, aggregate_predicted_labels_from_predicted = torch.max(aggregate_predicted_probs.data, 1)
+
+    # check that in the case of one model - all results are the same
+    print('checking correct label predictions')
+    print(np.array_equal(predicted_labels, aggregate_predicted_labels_from_pre.cpu().numpy()))
+    print(np.array_equal(predicted_labels, aggregate_predicted_labels_from_post.cpu().numpy()))
+    print(np.array_equal(predicted_labels, aggregate_predicted_labels_from_predicted.cpu().numpy()))
 
     if use_pre_softmax:
         return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs_from_pre.cpu().numpy(), aggregate_predicted_probs_from_pre.cpu().numpy(), aggregate_predicted_labels_from_pre.cpu().numpy(), true_labels, texts

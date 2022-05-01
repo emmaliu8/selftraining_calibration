@@ -9,6 +9,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from torch.utils.data import DataLoader
 import os
+import collections
 
 from data_setup import create_dataset, split_datasets, load_imdb_dataset, load_sst2_dataset, load_sst5_dataset, load_amazon_elec_dataset, load_amazon_elec_binary_dataset, load_modified_amazon_elec_binary_dataset, load_dbpedia_dataset, load_ag_news_dataset, load_yelp_full_dataset, load_yelp_polarity_dataset, load_amazon_full_dataset, load_amazon_polarity_dataset, load_yahoo_answers_dataset, load_twenty_news_dataset, load_airport_tweets_dataset, TextDataset
 from extract_features import featurize_dataset, combine_dataset_files
@@ -256,13 +257,13 @@ def main(models,
     if load_features: 
         # train_features = torch.load(dataset + '_features_train_data.pt')
         # train_labels = torch.load(dataset + '_labels_train_data.pt')
-        train = combine_dataset_files(dataset, 'train', '')
+        train = combine_dataset_files(dataset, 'train', '.')
 
         # test_features = torch.load(dataset + '_features_test_data.pt')
         # test_labels = torch.load(dataset + '_labels_test_data.pt')
         # first check if test set for this dataset exists
         if os.path.exists(dataset + '_1_features_test_data.pt'):
-            test = combine_dataset_files(dataset, 'test', '')
+            test = combine_dataset_files(dataset, 'test', '.')
         else:
             test = None
 
@@ -270,7 +271,7 @@ def main(models,
         # unlabeled_labels = torch.load(dataset + '_labels_unlabeled_data.pt')
         # first check if unlabeled set for this dataset exists
         if os.path.exists(dataset + '_1_features_unlabeled_data.pt'):
-            unlabeled = combine_dataset_files(dataset, 'unlabeled', '')
+            unlabeled = combine_dataset_files(dataset, 'unlabeled', '.')
         else:
             unlabeled = None 
 
@@ -500,6 +501,25 @@ def running_test_calibration():
 #             os.makedirs(folder_name)
 #         main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=True, labeled_percentage=labeled_prop, validation_percentage=validation_prop, learning_rate=lr)
 #         folder_index += 1
+
+model = TextClassificationModel(768, 2)
+main([model], 
+     'imdb',
+     criterion, 
+     'temp_scaling', 
+     'self_training_test95', 
+     load_features=True, 
+     calibrate=True)
+
+model1 = TextClassificationModel(768, 2)
+main([model1], 
+     'imdb',
+     criterion, 
+     'temp_scaling', 
+     'self_training_test96', 
+     load_features=True, 
+     calibrate=True,
+     learning_rate=0.001)
 
 
 
