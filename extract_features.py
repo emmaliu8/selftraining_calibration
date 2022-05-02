@@ -88,8 +88,13 @@ def combine_dataset_files(dataset, split, file_path):
     for fname in sorted(os.listdir(file_path)):
         if fname.startswith(dataset) and fname.endswith(split + "_data.pt"):
             fname_split = fname.split("_")
-            if int(fname_split[1]) > largest_index:
-                largest_index = int(fname_split[1])
+            index_of_num = None
+            for idx in range(len(fname_split)):
+                if fname_split[idx][0] in '1234567890':
+                    index_of_num = idx
+                    break
+            if int(fname_split[index_of_num]) > largest_index:
+                largest_index = int(fname_split[index_of_num])
     
     features = [] 
     labels = []

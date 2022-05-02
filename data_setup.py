@@ -686,4 +686,4 @@ def get_dataset_from_dataloader(dataloader, device):
     
     return texts, labels
 
-load_yahoo_answers_dataset('../')
+# load_yahoo_answers_dataset('../')

@@ -85,45 +85,50 @@ def run_experiments():
                                 main(models, dataset, criterion, calibration_method, folder_name, load_features=True, calibrate=True, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=False, labeled_percentage=labeled_percentage, validation_percentage=validation_percentage)   
 
 
-def tune_model(labeled_percentage=0.2, validation_percentage=0.1):
-    parameters_to_tune = ['num_epochs', 'learning_rate', 'batch_size', 'initrange']
+def tune_model(labeled_percentage=0.2, model_validation_percentage=0.1, dataset = 'imdb', dataset_has_test=True, shared_validation=False):
+    parameters_to_tune = ['num_epochs', 'learning_rate', 'batch_size']
     torch.manual_seed(0)
     np.random.seed(0)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # load imdb data
-    train_features = torch.load('imdb_features_train_data.pt')
-    train_labels = torch.load('imdb_labels_train_data.pt')
+    # load data
+    train_features, train_labels = combine_dataset_files(dataset, 'train', '.')
 
     # get training data and validation data for tuning model from original train data
+    model_validation_size = int(model_validation_percentage * len(train_labels))
     train_size = int(labeled_percentage * len(train_labels))
-    calibration_validation_size = int(validation_percentage)
-    model_validation_size = int(0.3 * len(train_labels))
-    model_train_features = train_features[:train_size]
-    model_train_labels = train_labels[:train_size]
-    model_validation_features = train_features[train_size+calibration_validation_size : train_size+calibration_validation_size + model_validation_size]
-    model_validation_labels = train_labels[train_size+calibration_validation_size : train_size+calibration_validation_size + model_validation_size]
+    test_size = int(0.2 * len(train_labels))
+    if shared_validation:
+        if dataset_has_test:
+             model_train_features, model_train_labels = train_features[:train_size], train_labels[:train_size]
+             model_validation_features, model_validation_labels = train_features[train_size: train_size + model_validation_size], train_labels[train_size: train_size + model_validation_size]
+        else:
+            model_train_features, model_train_labels = train_features[:train_size], train_labels[:train_size]
+            model_validation_features, model_validation_labels = train_features[train_size + test_size: train_size + test_size + model_validation_size], train_labels[train_size + test_size: train_size + test_size + model_validation_size]
+    else:
+        model_validation_features, model_validation_labels = train_features[:model_validation_size], train_labels[:model_validation_size]
+        model_train_features, model_train_labels = train_features[model_validation_size: model_validation_size + train_size], train_labels[model_validation_size: model_validation_size + train_size]
     
-    results = pd.DataFrame(columns=['num_epochs', 'initrange', 'batch_size', 'learning_rate', 'accuracy'])
+    results = pd.DataFrame(columns=['num_epochs', 'batch_size', 'learning_rate', 'accuracy'])
 
     for epoch_value in [5, 10, 15, 20, 25, 30]:
-        for initrange_value in [0.2, 0.4, 0.6, 0.8, 1]:
-            for batch_size_value in [64, 128, 256, 512]:
-                for lr_value in [0.00001, 0.0001, 0.001, 0.01, 0.1]:
-                    train_dataloader = DataLoader(TextDataset(model_train_features, model_train_labels), batch_size=batch_size_value)
-                    validation_dataloader = DataLoader(TextDataset(model_validation_features, model_validation_labels), batch_size=batch_size_value)
+        for batch_size_value in [64, 128, 256, 512]:
+            for lr_value in [0.00001, 0.0001, 0.001, 0.01, 0.1]:
+                train_dataloader = DataLoader(TextDataset(model_train_features, model_train_labels), batch_size=batch_size_value)
+                validation_dataloader = DataLoader(TextDataset(model_validation_features, model_validation_labels), batch_size=batch_size_value)
 
-                    model = TextClassificationModel(768, 2, initrange=initrange_value)
-                    trained_model = model_training(model, device, train_dataloader, criterion, num_epochs = epoch_value, learning_rate=lr_value)
+                model = TextClassificationModel(768, 2)
+                trained_model = model_training(model, device, train_dataloader, criterion, num_epochs = epoch_value, learning_rate=lr_value)
 
-                    # evaluate trained model on validation data 
-                    _, _, _, predicted_labels, true_labels, _ = get_model_predictions(validation_dataloader, device, [trained_model], use_pre_softmax=False, use_post_softmax=True)
-                    accuracy = accuracy_score(true_labels, predicted_labels)
+                # evaluate trained model on validation data 
+                _, _, _, predicted_labels, true_labels, _ = get_model_predictions(validation_dataloader, device, [trained_model], use_pre_softmax=False, use_post_softmax=True)
+                accuracy = accuracy_score(true_labels, predicted_labels)
 
-                    results.loc[len(results.index)] = [epoch_value, initrange_value, batch_size_value, lr_value, accuracy]
+                results.loc[len(results.index)] = [epoch_value, batch_size_value, lr_value, accuracy]
 
-    results.to_csv('tuning_one_layer_on_imdb_0.2_0.1_0.3.csv') 
+    results = results.sort_values(by=['accuracy'], ascending=False)
+    results.to_csv('tuning_one_layer_on_' + dataset + '_' + str(labeled_percentage) + '_' + str(model_validation_percentage) + '_' + str(shared_validation) + '.csv') 
 
 def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False, label_smoothing = 'none'):
     # reproducible
@@ -232,7 +237,8 @@ def main(models,
          calibrate = True, 
          label_smoothing = 'none', 
          label_smoothing_alpha=None, 
-         retrain_models_from_scratch=True, 
+         retrain_models_from_scratch=False, 
+         include_all_data_when_retraining=True,
          label_smoothing_model_training=False, 
          label_smoothing_model_training_alpha=0.1, 
          k_best=None, 
@@ -244,7 +250,9 @@ def main(models,
          balance_classes=False, 
          margin=False, 
          margin_only=False, 
-         diff_between_top_two_classes=0.3):
+         diff_between_top_two_classes=0.3,
+         validation_model_dataset_separate=True,
+         validation_model_percentage=0.1):
 
     # reproducible
     torch.manual_seed(0)
@@ -274,6 +282,10 @@ def main(models,
             unlabeled = combine_dataset_files(dataset, 'unlabeled', '.')
         else:
             unlabeled = None 
+
+        if validation_model_dataset_separate:
+            validation_model_size = int(validation_model_percentage * len(train_labels))
+            train = train_features[:validation_model_size], train_labels[:validation_model_size]
 
         (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, labeled_proportion=labeled_percentage, test=test, unlabeled=unlabeled, validation_proportion=validation_percentage, no_calibration=no_calibration, balance_classes=balance_classes)
         # (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), unlabeled=(unlabeled_features, unlabeled_labels), labeled_proportion=labeled_percentage, validation_proportion=validation_percentage)
@@ -401,10 +413,11 @@ def main(models,
             print('Exited on iteration ', i)
             break
 
+        # switch retrain_from_scratch back 
         if calibrate:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, unlabeled_dataloader, num_classes=num_classes, calibrate=True, validation_dataloader=validation_dataloader, recalibration_method=recalibration_method, label_smoothing=label_smoothing, label_smoothing_alpha=label_smoothing_alpha, retrain_from_scratch=retrain_models_from_scratch, train_dataloader=train_dataloader, batch_size=64, margin=margin, margin_only=margin_only, k_best_and_threshold=k_best_and_threshold, k_best=k_best, threshold=threshold, k = k, diff_between_top_two_classes=diff_between_top_two_classes)
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, unlabeled_dataloader, num_classes=num_classes, calibrate=True, validation_dataloader=validation_dataloader, recalibration_method=recalibration_method, label_smoothing=label_smoothing, label_smoothing_alpha=label_smoothing_alpha, retrain_from_scratch=include_all_data_when_retraining, train_dataloader=train_dataloader, batch_size=64, margin=margin, margin_only=margin_only, k_best_and_threshold=k_best_and_threshold, k_best=k_best, threshold=threshold, k = k, diff_between_top_two_classes=diff_between_top_two_classes)
         else:
-            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, unlabeled_dataloader, num_classes=num_classes, calibrate=False, label_smoothing=label_smoothing, label_smoothing_alpha=label_smoothing_alpha, retrain_from_scratch=retrain_models_from_scratch, train_dataloader=train_dataloader, batch_size=64, margin=margin, margin_only=margin_only, k_best_and_threshold=k_best_and_threshold, k_best=k_best, threshold=threshold, k = k, diff_between_top_two_classes=diff_between_top_two_classes)
+            train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, unlabeled_dataloader, num_classes=num_classes, calibrate=False, label_smoothing=label_smoothing, label_smoothing_alpha=label_smoothing_alpha, retrain_from_scratch=include_all_data_when_retraining, train_dataloader=train_dataloader, batch_size=64, margin=margin, margin_only=margin_only, k_best_and_threshold=k_best_and_threshold, k_best=k_best, threshold=threshold, k = k, diff_between_top_two_classes=diff_between_top_two_classes)
 
 
         train_dataset_size += num_samples_added_to_train
@@ -502,24 +515,74 @@ def running_test_calibration():
 #         main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=True, labeled_percentage=labeled_prop, validation_percentage=validation_prop, learning_rate=lr)
 #         folder_index += 1
 
-model = TextClassificationModel(768, 2)
-main([model], 
-     'imdb',
-     criterion, 
-     'temp_scaling', 
-     'self_training_test95', 
-     load_features=True, 
-     calibrate=True)
+# model = TextClassificationModel(768, 2)
+# main([model], 
+#      'imdb',
+#      criterion, 
+#      'temp_scaling', 
+#      'self_training_test97', 
+#      load_features=True, 
+#      calibrate=True,
+#      retrain_models_from_scratch=False)
 
-model1 = TextClassificationModel(768, 2)
-main([model1], 
-     'imdb',
-     criterion, 
-     'temp_scaling', 
-     'self_training_test96', 
-     load_features=True, 
-     calibrate=True,
-     learning_rate=0.001)
+# model1 = TextClassificationModel(768, 2)
+# main([model1], 
+#      'imdb',
+#      criterion, 
+#      'temp_scaling', 
+#      'self_training_test98', 
+#      load_features=True, 
+#      calibrate=True,
+#      learning_rate=0.001,
+#      retrain_models_from_scratch=False)
+    
+# default to 0.1 for validation_model_prop -> also try w/ same prop as for calibration validation set
+labeled_and_validation_props = [(0.001, 0.001),
+                                (0.001, 0.0005),
+                                (0.001, 0.002),
+                                (0.01, 0.01), 
+                                (0.01, 0.005),
+                                (0.01, 0.02),
+                                (0.05, 0.05),
+                                (0.05, 0.025),
+                                (0.05, 0.1), 
+                                (0.1, 0.1), 
+                                (0.1, 0.05),
+                                (0.1, 0.2),
+                                (0.2, 0.2),
+                                (0.2, 0.1),
+                                (0.2, 0.4), 
+                                (0.25, 0.25),
+                                (0.25, 0.125),
+                                (0.25, 0.5)]
+
+# for (labeled_prop, validation_prop) in labeled_and_validation_props:
+#     print(labeled_prop)
+#     print(validation_prop)
+#     for dataset in ['imdb']:
+#         print(dataset)
+#         has_test = True if dataset in ('imdb', 'sst2', 'modified_amazon_elec_binary', 'yelp_polarity', 'amazon_polarity') else False
+
+#         # run once w/ model_validation_prop = 0.1
+#         tune_model(labeled_percentage=labeled_prop, model_validation_percentage=0.1, dataset=dataset, dataset_has_test=has_test, shared_validation=False)
+
+#         # run once w/ model_validation_prop = validation_prop
+#         tune_model(labeled_percentage=labeled_prop, model_validation_percentage=validation_prop, dataset=dataset, dataset_has_test=has_test, shared_validation=True)
+
+
+# without calibration experiments
+folder_index = 99
+labeled_props_no_calibration = [0.002, 0.0015, 0.003, 0.02, 0.015, 0.03, 0.1, 0.075, 0.15, 0.2, 0.3, 0.4, 0.6, 0.5, 0.375, 0.75]
+for labeled_prop in labeled_props_no_calibration:
+    model = TextClassificationModel(768, 2)
+    folder_name = 'self_training_test' + str(folder_index)
+    folder_exists = os.path.exists(folder_name)
+    if not folder_exists:
+        os.makedirs(folder_name)
+    main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=False, labeled_percentage=labeled_prop, learning_rate=lr, validation_percentage=0)
+    folder_index += 1
+
+
 
 
 

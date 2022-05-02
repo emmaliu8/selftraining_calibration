@@ -56,6 +56,7 @@ def get_model_predictions(dataloader,
 
     # first get texts and true labels
     texts, true_labels = get_dataset_from_dataloader(dataloader, device)
+    true_labels = np.array(true_labels)
 
     for model in models:
         pre_softmax_probs = []
@@ -98,21 +99,16 @@ def get_model_predictions(dataloader,
 
     aggregate_post_softmax_probs = torch.mean(torch.stack(all_post_softmax_probs), dim=0)
     aggregate_predicted_probs_from_post, aggregate_predicted_labels_from_post = torch.max(aggregate_post_softmax_probs.data, 1)
+    aggregate_predicted_probs_from_post = aggregate_predicted_probs_from_post.reshape(-1, 1)
 
     # get predicted_labels 
     aggregate_predicted_probs = torch.mean(torch.stack(all_predicted_probs), dim=0)
     _, aggregate_predicted_labels_from_predicted = torch.max(aggregate_predicted_probs.data, 1)
 
-    # check that in the case of one model - all results are the same
-    print('checking correct label predictions')
-    print(np.array_equal(predicted_labels, aggregate_predicted_labels_from_pre.cpu().numpy()))
-    print(np.array_equal(predicted_labels, aggregate_predicted_labels_from_post.cpu().numpy()))
-    print(np.array_equal(predicted_labels, aggregate_predicted_labels_from_predicted.cpu().numpy()))
-
     if use_pre_softmax:
         return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs_from_pre.cpu().numpy(), aggregate_predicted_probs_from_pre.cpu().numpy(), aggregate_predicted_labels_from_pre.cpu().numpy(), true_labels, texts
     elif use_post_softmax:
         return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs_from_post.cpu().numpy(), aggregate_predicted_labels_from_post.cpu().numpy(), true_labels, texts
-    else:
+    else: # not returning the correct labels but will fix later bc code not used
         return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs.cpu().numpy(), aggregate_predicted_labels_from_predicted.cpu().numpy(), true_labels, texts
 
