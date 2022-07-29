@@ -1,7 +1,7 @@
 import torch 
 from torch import nn
 import numpy as np 
-from data_setup import create_dataset, split_datasets, load_imdb_dataset, load_sst2_dataset, load_sst5_dataset, load_amazon_elec_dataset, load_amazon_elec_binary_dataset, load_modified_amazon_elec_binary_dataset, load_dbpedia_dataset, load_ag_news_dataset, load_yelp_full_dataset, load_yelp_polarity_dataset, load_amazon_full_dataset, load_amazon_polarity_dataset, load_yahoo_answers_dataset, load_twenty_news_dataset, load_airport_tweets_dataset, TextDataset
+from data_setup import create_dataset, split_datasets, load_sst5_dataset, TextDataset
 from torch.utils.data import DataLoader
 from extract_features import featurize_dataset
 from calibration import calibrate_platt_scaling, plot_calibration_curve, calibrate_temperature_scaling, calibrate_histogram_binning, calibrate_isotonic_regression, calibrate_beta_calibration, calibrate_equal_freq_binning, calibrate_bbq, calibrate_ensemble_temperature_scaling, calibrate_enir, calibrate_platt_binner, calibrate_vector_scaling, calibrate_matrix_scaling
@@ -9,10 +9,7 @@ from classifiers import TextClassificationModel
 from model_training import model_training, get_model_predictions
 from sklearn.metrics import accuracy_score
 
-# constants
-# labeled_percentage = 0.2 # percentage of training data to use as initial set of labeled data (for training)
-# validation_percentage = 0.1 # percentage of training data to use as validation set for determining calibration parameters
-# validation_model_percentage = 0.2 # percentage of training data to use as validation set for tuning model
+# CONSTANTS
 batch_size = 64
 threshold = 0.8 # used to determine which unlabeled examples have high enough confidence
 num_classes = 2 
@@ -23,6 +20,13 @@ num_self_training_iterations = 1000000
 criterion = nn.CrossEntropyLoss()
 
 def test_calibration_multiclass(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False, label_smoothing = 'none'):
+    '''
+    Testing calibration methods on a multi-class dataset (SST-5)
+
+    folder_name: where to store results
+    load_model: True if loading previously trained model, False if training from scratch
+    load_features: True if loading previously saved features, False if featurizing from scratch
+    '''
     # reproducible
     torch.manual_seed(0)
     np.random.seed(0)
@@ -36,17 +40,13 @@ def test_calibration_multiclass(calibration_method, folder_name, load_model = Fa
         test_features = torch.load('sst5_features_test_data.pt')
         test_labels = torch.load('sst5_labels_test_data.pt')
 
-        # unlabeled_features = torch.load('features_unlabeled_data.pt')
-        # unlabeled_labels = torch.load('labels_unlabeled_data.pt')
-
         (train_features, train_labels), (validation_features, validation_labels), (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), labeled_proportion=0.1, validation_proportion=0.1)
 
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
         validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
-        unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
     else:
-        train, unlabeled, test = load_imdb_dataset('../')
+        train, unlabeled, test = load_sst5_dataset('../')
 
         # for testing purposes
         # train = train[0][:100], train[1][:100]
@@ -67,7 +67,6 @@ def test_calibration_multiclass(calibration_method, folder_name, load_model = Fa
         train_dataloader = DataLoader(TextDataset(train_features, train_labels), batch_size=batch_size)
         test_dataloader = DataLoader(TextDataset(test_features, test_labels), batch_size=batch_size)
         validation_dataloader = DataLoader(TextDataset(validation_features, validation_labels), batch_size=batch_size)
-        unlabeled_dataloader = DataLoader(TextDataset(unlabeled_features, unlabeled_labels), batch_size=batch_size)
 
     if load_model:
         model = TextClassificationModel(768, 2)

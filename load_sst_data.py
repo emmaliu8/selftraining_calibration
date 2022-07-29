@@ -1,5 +1,7 @@
 from datasets import load_dataset
 
+# script to load sst dataset (from huggingface) and save to txt files
+
 sst = load_dataset('sst')
 train = sst['train']
 validation = sst['validation']

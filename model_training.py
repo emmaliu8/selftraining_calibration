@@ -15,7 +15,11 @@ def model_training(model,
                    label_smoothing=False, # can only be alpha method so either True or False
                    label_smoothing_alpha=0.1, 
                    learning_rate=0.001):
+    '''
+    Trains a model on the given dataset (train_loader)
 
+    If file_name is given, saves the trained model
+    '''
     model = model.to(device)
     optimizer = optim.SGD(model.parameters(), lr=learning_rate) 
 
@@ -27,15 +31,17 @@ def model_training(model,
             inputs, labels = batch['Text'].to(device), batch['Class'].to(device)
 
             if label_smoothing:
-                labels = calibration.alpha_label_smoothing(labels, label_smoothing_alpha)
+                labels = torch.tensor(calibration.alpha_label_smoothing(labels.cpu(), label_smoothing_alpha, for_model_training=True)).to(device)
             
             # zero the parameter gradients
             optimizer.zero_grad()
 
             # forward + backward + optimize
             outputs = model(inputs)
-            labels = torch.flatten(labels)
-
+            if not label_smoothing:
+                labels = torch.flatten(labels)
+            else:
+                labels = labels.to(torch.float32)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -46,13 +52,20 @@ def model_training(model,
 
 def get_model_predictions(dataloader, 
                           device, 
-                          models, 
+                          models, # list of models 
                           use_pre_softmax=False, 
                           use_post_softmax=True, # default bc best option for ensembles and does not matter for when there is only one model
-                          unlabeled=False):
+                          ):
+    '''
+    Get predictions from the given model(s) on a dataset
+    If the number of models is greater than 1, output is an aggregate of predictions from all inputted models
+
+    Method of aggregation determined by use_pre_softmax and use_post_softmax
+    If use_pre_softmax = True: Aggregates predictions before the softmax layer and uses aggregated predictions to get post softmax predictions and predicted labels
+    Elif use_post_softmax = True: Aggregates predictions after the softmax layer and uses aggregated predictions to get predicted labels
+    '''
     all_pre_softmax_probs = []
     all_post_softmax_probs = []
-    all_predicted_probs = []
 
     # first get texts and true labels
     texts, true_labels = get_dataset_from_dataloader(dataloader, device)
@@ -61,8 +74,6 @@ def get_model_predictions(dataloader,
     for model in models:
         pre_softmax_probs = []
         post_softmax_probs = []
-        predicted_probs = []
-        predicted_labels = [] # temp for testing ensembling
 
         model.eval()
 
@@ -75,21 +86,14 @@ def get_model_predictions(dataloader,
                 sm = nn.Softmax(dim=1)
                 post_softmax = sm(pre_softmax)
 
-                predicted_prob, predicted_label = torch.max(post_softmax.data, 1)
-
                 pre_softmax_probs.append(pre_softmax)
                 post_softmax_probs.append(post_softmax)
-                predicted_probs.extend(predicted_prob.cpu().numpy())
-                predicted_labels.extend(predicted_label.cpu().numpy())
 
         pre_softmax_probs = torch.cat(pre_softmax_probs)
         post_softmax_probs = torch.cat(post_softmax_probs)
-        predicted_probs = torch.tensor(np.array(predicted_probs).reshape(-1, 1))
-        predicted_labels = np.array(predicted_labels)
 
         all_pre_softmax_probs.append(pre_softmax_probs)
         all_post_softmax_probs.append(post_softmax_probs)
-        all_predicted_probs.append(predicted_probs)
     
     # average pre_softmax, post_softmax, predicted probs
     aggregate_pre_softmax_probs = torch.mean(torch.stack(all_pre_softmax_probs), dim=0)
@@ -101,14 +105,8 @@ def get_model_predictions(dataloader,
     aggregate_predicted_probs_from_post, aggregate_predicted_labels_from_post = torch.max(aggregate_post_softmax_probs.data, 1)
     aggregate_predicted_probs_from_post = aggregate_predicted_probs_from_post.reshape(-1, 1)
 
-    # get predicted_labels 
-    aggregate_predicted_probs = torch.mean(torch.stack(all_predicted_probs), dim=0)
-    _, aggregate_predicted_labels_from_predicted = torch.max(aggregate_predicted_probs.data, 1)
-
     if use_pre_softmax:
         return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs_from_pre.cpu().numpy(), aggregate_predicted_probs_from_pre.cpu().numpy(), aggregate_predicted_labels_from_pre.cpu().numpy(), true_labels, texts
     elif use_post_softmax:
         return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs_from_post.cpu().numpy(), aggregate_predicted_labels_from_post.cpu().numpy(), true_labels, texts
-    else: # not returning the correct labels but will fix later bc code not used
-        return aggregate_pre_softmax_probs.cpu().numpy(), aggregate_post_softmax_probs.cpu().numpy(), aggregate_predicted_probs.cpu().numpy(), aggregate_predicted_labels_from_predicted.cpu().numpy(), true_labels, texts
 

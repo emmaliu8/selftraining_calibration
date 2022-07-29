@@ -3,13 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 from torch import nn
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from torch.utils.data import DataLoader
 import os
-import collections
 
 from data_setup import create_dataset, split_datasets, load_imdb_dataset, load_sst2_dataset, load_sst5_dataset, load_amazon_elec_dataset, load_amazon_elec_binary_dataset, load_modified_amazon_elec_binary_dataset, load_dbpedia_dataset, load_ag_news_dataset, load_yelp_full_dataset, load_yelp_polarity_dataset, load_amazon_full_dataset, load_amazon_polarity_dataset, load_yahoo_answers_dataset, load_twenty_news_dataset, load_airport_tweets_dataset, TextDataset
 from extract_features import featurize_dataset, combine_dataset_files
@@ -18,74 +14,23 @@ from calibration import calibrate_platt_scaling, plot_calibration_curve, calibra
 from selecting_unlabeled import unlabeled_samples_to_train
 from classifiers import TextClassificationModel
 
-# constants
-# labeled_percentage = 0.2 # percentage of training data to use as initial set of labeled data (for training)
-# validation_percentage = 0.1 # percentage of training data to use as validation set for determining calibration parameters
-# validation_model_percentage = 0.2 # percentage of training data to use as validation set for tuning model
-batch_size = 64
+# CONSTANTS
 threshold = 0.8 # used to determine which unlabeled examples have high enough confidence
-num_classes = 2 
-num_epochs = 10
-# learning_rate = 0.1
+num_classes = 2
 num_self_training_iterations = 1000000
+batch_size = 64
 
 criterion = nn.CrossEntropyLoss() 
 
-def run_experiments():
-    # vary labeled_percentage, validation_percentage
-    adding_unlabeled_samples_methods = ['k_best_and_threshold', 'k_best', 'threshold']
-    binary_classification_calibration_methods = ['histogram_binning', 'isotonic_regression', 'beta_calibration', 'temp_scaling', 'platt_scaling', 'equal_freq_binning', 'bbq', 'ensemble_temperature_scaling', 'enir', 'platt_binning']
-
-    num_epochs = 10 # set at the top
-    learning_rate = 0.1 # set at the top
-    batch_size = 64 # set at the top
-    initrange = 0.2
-    model = TextClassificationModel(768, 2, initrange=initrange)
-    models = [model]
-    dataset = 'imdb'
-    labeled_percentages = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
-    validation_percentages = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
-    sum_labeled_validation = list(set([x + y for x, y in zip(labeled_percentages, validation_percentages)]))
-    labeled_percentages_no_calibration = list(set(labeled_percentages + sum_labeled_validation))
-
-    # binary_classification_datasets = ['imdb', 'sst2', 'airport_tweets', 'yelp_polarity', 'amazon_elec_binary', 'modified_elec_binary']
-
-    # first without calibration
-    for unlabeled_samples_method in adding_unlabeled_samples_methods:
-        for retrain_models_from_scratch_value in [True, False]:
-            for labeled_percentage in labeled_percentages_no_calibration:
-                folder_name = "self_training_imdb_" + unlabeled_samples_method + "_" + str(retrain_models_from_scratch_value) + "_no_calibration_" + str(labeled_percentage)
-                folder_exists = os.path.exists(folder_name)
-                if not folder_exists:
-                    os.makedirs(folder_name)
-
-                    if unlabeled_samples_method == 'k_best_and_threshold':
-                        main(models, dataset, criterion, None, folder_name, load_features=True, calibrate=False, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=True, labeled_percentage=labeled_percentage)
-                    elif unlabeled_samples_method == 'k_best':
-                        main(models, dataset, criterion, None, folder_name, load_features=True, calibrate=False, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=True, k_best_and_threshold=False, labeled_percentage=labeled_percentage)  
-                    else:
-                        main(models, dataset, criterion, None, folder_name, load_features=True, calibrate=False, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=False, labeled_percentage=labeled_percentage)             
-
-    # second with all binary classification calibration methods 
-    for unlabeled_samples_method in adding_unlabeled_samples_methods:
-        for retrain_models_from_scratch_value in [True, False]:
-            for calibration_method in binary_classification_calibration_methods:
-                for labeled_percentage in labeled_percentages:
-                    for validation_percentage in validation_percentages:
-                        folder_name = "self_training_imdb_" + unlabeled_samples_method + "_" + str(retrain_models_from_scratch_value) + "_" + calibration_method + "_" + str(labeled_percentage) + "_" + str(validation_percentage) 
-                        folder_exists = os.path.exists(folder_name)
-                        if not folder_exists:
-                            os.makedirs(folder_name)
-                        
-                            if unlabeled_samples_method == 'k_best_and_threshold':
-                                main(models, dataset, criterion, calibration_method, folder_name, load_features=True, calibrate=True, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=True, labeled_percentage=labeled_percentage, validation_percentage=validation_percentage)
-                            elif unlabeled_samples_method == 'k_best':
-                                main(models, dataset, criterion, calibration_method, folder_name, load_features=True, calibrate=True, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=True, k_best_and_threshold=False, labeled_percentage=labeled_percentage, validation_percentage=validation_percentage)  
-                            else:
-                                main(models, dataset, criterion, calibration_method, folder_name, load_features=True, calibrate=True, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=False, labeled_percentage=labeled_percentage, validation_percentage=validation_percentage)   
-
-
-def tune_model(labeled_percentage=0.2, model_validation_percentage=0.1, dataset = 'imdb', dataset_has_test=True, shared_validation=False):
+def tune_model(labeled_percentage=0.2, # percentage of training data to use as initial set of labeled data (for training)
+               model_validation_percentage=0.1, # percentage of training data to use as validation set for tuning model
+               dataset = 'imdb', 
+               dataset_has_test=True, # dataset has a given test set
+               shared_validation=False # whether or not validation set for model tuning is the same as the validation set for calibration tuning (affects how the dataset splits are created)
+               ):
+    '''
+    Outputs model accuracy after training with different hyperparameters
+    '''
     parameters_to_tune = ['num_epochs', 'learning_rate', 'batch_size']
     torch.manual_seed(0)
     np.random.seed(0)
@@ -112,6 +57,7 @@ def tune_model(labeled_percentage=0.2, model_validation_percentage=0.1, dataset 
     
     results = pd.DataFrame(columns=['num_epochs', 'batch_size', 'learning_rate', 'accuracy'])
 
+    # model tuning
     for epoch_value in [5, 10, 15, 20, 25, 30]:
         for batch_size_value in [64, 128, 256, 512]:
             for lr_value in [0.00001, 0.0001, 0.001, 0.01, 0.1]:
@@ -130,7 +76,16 @@ def tune_model(labeled_percentage=0.2, model_validation_percentage=0.1, dataset 
     results = results.sort_values(by=['accuracy'], ascending=False)
     results.to_csv('tuning_one_layer_on_' + dataset + '_' + str(labeled_percentage) + '_' + str(model_validation_percentage) + '_' + str(shared_validation) + '.csv') 
 
-def test_calibration(calibration_method, folder_name, load_model = False, load_model_path = None, load_features = False, label_smoothing = 'none'):
+def test_calibration(calibration_method, 
+                     folder_name, # for saving results 
+                     load_model = False, # load previously trained model
+                     load_model_path = None, 
+                     load_features = False, # load previously computed features
+                     label_smoothing = 'none' # 'none', 'alpha', or 'platt'
+                     ):
+    '''
+    Tests calibration methods on the IMDB dataset
+    '''
     # reproducible
     torch.manual_seed(0)
     np.random.seed(0)
@@ -138,11 +93,11 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if load_features:
-        train_features = torch.load('sst5_features_train_data.pt')
-        train_labels = torch.load('sst5_labels_train_data.pt')
+        train_features = torch.load('imdb_features_train_data.pt')
+        train_labels = torch.load('imdb_labels_train_data.pt')
 
-        test_features = torch.load('sst5_features_test_data.pt')
-        test_labels = torch.load('sst5_labels_test_data.pt')
+        test_features = torch.load('imdb_features_test_data.pt')
+        test_labels = torch.load('imdb_labels_test_data.pt')
 
         # unlabeled_features = torch.load('features_unlabeled_data.pt')
         # unlabeled_labels = torch.load('labels_unlabeled_data.pt')
@@ -222,38 +177,69 @@ def test_calibration(calibration_method, folder_name, load_model = False, load_m
     if calibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling'):
         calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_pre_softmax_probs, label_smoothing)
     elif calibration_method in ('vector_scaling', 'matrix_scaling'):
-        calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_pre_softmax_probs, label_smoothing, num_classes=5) # testing on sst5
+        calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_pre_softmax_probs, label_smoothing, num_classes=num_classes)
     else:
         calibrated_test_probs = calibration_class(validation_dataloader, device, [model], test_post_softmax_probs, label_smoothing)
 
     plot_calibration_curve(test_true_labels, calibrated_test_probs, folder_name + '/' + calibration_method + '_test_after_calibration.jpg')
 
-def main(models, 
-         dataset, 
-         criterion, 
-         recalibration_method, 
-         folder_name, 
-         load_features = False, 
-         calibrate = True, 
-         label_smoothing = 'none', 
-         label_smoothing_alpha=None, 
-         retrain_models_from_scratch=False, 
-         include_all_data_when_retraining=True,
-         label_smoothing_model_training=False, 
-         label_smoothing_model_training_alpha=0.1, 
-         k_best=None, 
-         k=1000, 
-         k_best_and_threshold=None, 
-         labeled_percentage=0.2,
-         validation_percentage=0.1, 
-         learning_rate=0.1, 
-         balance_classes=False, 
-         margin=False, 
-         margin_only=False, 
-         diff_between_top_two_classes=0.3,
-         validation_model_dataset_separate=True,
-         validation_model_percentage=0.1):
+def running_test_calibration():
+    # testing all calibration methods
+    print('temperature scaling')
+    test_calibration('temp_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('histogram binning')
+    test_calibration('histogram_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('isotonic regression')
+    test_calibration('isotonic_regression', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('beta calibration')
+    test_calibration('beta_calibration', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('platt scaling')
+    test_calibration('platt_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('equal_freq_binning')
+    test_calibration('equal_freq_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('ensemble_temperature_scaling')
+    test_calibration('ensemble_temperature_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('bbq')
+    test_calibration('bbq', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('enir')
+    test_calibration('enir', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('platt_binning')
+    test_calibration('platt_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
+    print('vector_scaling')
+    test_calibration('vector_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
+    print('matrix_scaling')
+    test_calibration('matrix_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
 
+def main(models, # list of models 
+         dataset, # any of keys in dataset_name_to_load_func 
+         recalibration_method, # any of keys in methods
+         folder_name, # where to save results
+         criterion= criterion, 
+         load_features = False, # load previously computed features for dataset
+         calibrate = True, # include calibration step to adjust confidence scores
+         label_smoothing = 'none', # for label smoothing during calibration fitting; 'none', 'alpha', or 'platt'
+         label_smoothing_alpha=0.1, # alpha parameter used if label_smoothing = 'alpha'
+         retrain_models_from_scratch=False, # if True, start with untrained model in each self-training iteration
+         include_all_data_when_retraining=True, # if True, training set in each self-training iteration includes training set in previous iteration plus newly added unlabeled samples
+         label_smoothing_model_training=False, # alpha label smoothing during model training
+         label_smoothing_model_training_alpha=0.1, 
+         labeled_percentage=0.2, # percentage of training data to use as initial set of labeled data (for training)
+         validation_percentage=0.1, # percentage of training data to use as validation set for determining calibration parameters
+         learning_rate=0.1, # for model training
+         balance_classes=False, # if True, ensure initial training set has equal number of instances per class
+         margin=False, # see explanation in unlabeled_samples_to_train function
+         margin_only=False, # see explanation in unlabeled_samples_to_train function
+         k_best=None, # see explanation in unlabeled_samples_to_train function
+         k=1000, # see explanation in unlabeled_samples_to_train function
+         k_best_and_threshold=None, # see explanation in unlabeled_samples_to_train function
+         diff_between_top_two_classes=0.3, # see explanation in unlabeled_samples_to_train function
+         validation_model_dataset_separate=True, # if True, separate validation sets for model tuning and calibration fitting
+         validation_model_percentage=0.1, # percentage of training data to use as validation set for tuning model
+         num_epochs=10,
+         batch_size=64):
+    '''
+    Runs self-training with calibration pipeline
+    '''
     # reproducible
     torch.manual_seed(0)
     np.random.seed(0)
@@ -262,21 +248,16 @@ def main(models,
 
     no_calibration = not calibrate 
 
+    # get featurized dataset
     if load_features: 
-        # train_features = torch.load(dataset + '_features_train_data.pt')
-        # train_labels = torch.load(dataset + '_labels_train_data.pt')
         train = combine_dataset_files(dataset, 'train', '.')
 
-        # test_features = torch.load(dataset + '_features_test_data.pt')
-        # test_labels = torch.load(dataset + '_labels_test_data.pt')
         # first check if test set for this dataset exists
         if os.path.exists(dataset + '_1_features_test_data.pt'):
             test = combine_dataset_files(dataset, 'test', '.')
         else:
             test = None
 
-        # unlabeled_features = torch.load(dataset + '_features_unlabeled_data.pt')
-        # unlabeled_labels = torch.load(dataset + '_labels_unlabeled_data.pt')
         # first check if unlabeled set for this dataset exists
         if os.path.exists(dataset + '_1_features_unlabeled_data.pt'):
             unlabeled = combine_dataset_files(dataset, 'unlabeled', '.')
@@ -284,11 +265,10 @@ def main(models,
             unlabeled = None 
 
         if validation_model_dataset_separate:
-            validation_model_size = int(validation_model_percentage * len(train_labels))
-            train = train_features[:validation_model_size], train_labels[:validation_model_size]
+            validation_model_size = int(validation_model_percentage * len(train[1]))
+            train = train[0][:validation_model_size], train[1][:validation_model_size]
 
         (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, labeled_proportion=labeled_percentage, test=test, unlabeled=unlabeled, validation_proportion=validation_percentage, no_calibration=no_calibration, balance_classes=balance_classes)
-        # (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets((train_features, train_labels), test=(test_features, test_labels), unlabeled=(unlabeled_features, unlabeled_labels), labeled_proportion=labeled_percentage, validation_proportion=validation_percentage)
 
         if validation is not None:
             validation_features, validation_labels = validation 
@@ -327,16 +307,15 @@ def main(models,
             unlabeled_dataset = create_dataset(unlabeled[0], unlabeled[1])
 
         # extract features 
-        # if dataset != 'sst2' and dataset != 'sst5' and dataset != 'airport_tweets': # TEMPORARY
         train = featurize_dataset(train_dataset, device, batch_size, dataset, 'train_data.pt')
-        # else:
-        #     train_features = torch.load(dataset + '_features_train_data.pt')
-        #     train_labels = torch.load(dataset + '_labels_train_data.pt')
-        #     train = train_features, train_labels
         if test is not None:
             test = featurize_dataset(test_dataset, device, batch_size, dataset, 'test_data.pt')
         if unlabeled is not None:
             unlabeled = featurize_dataset(unlabeled_dataset, device, batch_size, dataset, 'unlabeled_data.pt')
+
+        if validation_model_dataset_separate:
+            validation_model_size = int(validation_model_percentage * len(train_labels))
+            train = train_features[:validation_model_size], train_labels[:validation_model_size]
 
         # split datasets to get validation and updated train and unlabeled sets
         (train_features, train_labels), validation, (test_features, test_labels), (unlabeled_features, unlabeled_labels) = split_datasets(train, labeled_proportion=labeled_percentage, test=test, unlabeled=unlabeled, validation_proportion=validation_percentage, no_calibration=no_calibration, balance_classes=balance_classes)
@@ -362,7 +341,7 @@ def main(models,
     expected_calibration_errors = []
     expected_calibration_errors_recalibration = []
 
-    all_unlabeled_data_used = False
+    all_unlabeled_data_used = False # for stopping criteria
 
     for i in range(num_self_training_iterations):
 
@@ -381,10 +360,10 @@ def main(models,
 
         # update metrics
         accuracy.append(accuracy_score(true_labels, predicted_labels))
-        precision.append(precision_score(true_labels, predicted_labels))
-        recall.append(recall_score(true_labels, predicted_labels))
-        f1.append(f1_score(true_labels, predicted_labels))
-        auc_roc.append(roc_auc_score(true_labels, predicted_probs))
+        precision.append(precision_score(true_labels, predicted_labels, average='macro'))
+        recall.append(recall_score(true_labels, predicted_labels, average='macro'))
+        f1.append(f1_score(true_labels, predicted_labels, average='macro'))
+        # auc_roc.append(roc_auc_score(true_labels, predicted_probs))
         training_data_size.append(train_dataset_size)
         expected_calibration_errors.append(ece)
 
@@ -396,7 +375,7 @@ def main(models,
             if recalibration_method in ('temp_scaling', 'platt_scaling', 'ensemble_temperature_scaling'):
                 calibrated_probs = calibration_class(validation_dataloader, device, models, pre_softmax_probs, label_smoothing, label_smoothing_alpha)
             elif recalibration_method in ('vector_scaling', 'matrix_scaling'):
-                calibrated_probs = calibration_class(validation_dataloader, device, [model], pre_softmax_probs, label_smoothing, num_classes=num_classes) # need to chnage param at top of file
+                calibrated_probs = calibration_class(validation_dataloader, device, models, pre_softmax_probs, label_smoothing, num_classes=num_classes) # need to chnage param at top of file
             else:
                 calibrated_probs = calibration_class(validation_dataloader, device, models, post_softmax_probs, label_smoothing, label_smoothing_alpha)
 
@@ -413,7 +392,7 @@ def main(models,
             print('Exited on iteration ', i)
             break
 
-        # switch retrain_from_scratch back 
+        # select unlabeled samples to add to training set
         if calibrate:
             train_dataloader, unlabeled_dataloader, num_samples_added_to_train, num_unlabeled_samples = unlabeled_samples_to_train(models, device, unlabeled_dataloader, num_classes=num_classes, calibrate=True, validation_dataloader=validation_dataloader, recalibration_method=recalibration_method, label_smoothing=label_smoothing, label_smoothing_alpha=label_smoothing_alpha, retrain_from_scratch=include_all_data_when_retraining, train_dataloader=train_dataloader, batch_size=64, margin=margin, margin_only=margin_only, k_best_and_threshold=k_best_and_threshold, k_best=k_best, threshold=threshold, k = k, diff_between_top_two_classes=diff_between_top_two_classes)
         else:
@@ -459,142 +438,62 @@ def main(models,
     plt.savefig(folder_name + '/' + dataset + '_' + recalibration_method + '_trainingdatasize.jpg')
 
     # get/store metric values
-    metrics_dict = {'accuracy': accuracy, 'precision': precision, 'recall': recall, 'f1': f1, 'auc-roc': auc_roc, 'ece': expected_calibration_errors, 'training_data_size': training_data_size}
+    metrics_dict = {'accuracy': accuracy, 'precision': precision, 'recall': recall, 'f1': f1, 'ece': expected_calibration_errors, 'training_data_size': training_data_size}
     if calibrate:
         metrics_dict['ece_after_recalibration'] = expected_calibration_errors_recalibration
     metrics = pd.DataFrame(data=metrics_dict)
     metrics.to_csv(folder_name + '/' + dataset + '_' + recalibration_method + '_metrics.csv')
 
-def running_test_calibration():
-    # testing calibration
-    print('temperature scaling')
-    test_calibration('temp_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('histogram binning')
-    test_calibration('histogram_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('isotonic regression')
-    test_calibration('isotonic_regression', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('beta calibration')
-    test_calibration('beta_calibration', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('platt scaling')
-    test_calibration('platt_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('equal_freq_binning')
-    test_calibration('equal_freq_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('ensemble_temperature_scaling')
-    test_calibration('ensemble_temperature_scaling', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('bbq')
-    test_calibration('bbq', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('enir')
-    test_calibration('enir', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('platt_binning')
-    test_calibration('platt_binning', 'temperature_scaling_test10', load_model = False, load_model_path = 'test_calibration_model.pt', load_features = True, label_smoothing = 'none')
-    print('vector_scaling')
-    test_calibration('vector_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
-    print('matrix_scaling')
-    test_calibration('matrix_scaling', 'temperature_scaling_test10', load_model=False, load_model_path = None, load_features=True, label_smoothing = 'none')
+def run_experiments():
+    '''
+    Running main() with different parameters
+    '''
+    # vary labeled_percentage, validation_percentage
+    adding_unlabeled_samples_methods = ['k_best_and_threshold', 'k_best', 'threshold']
+    binary_classification_calibration_methods = ['histogram_binning', 'isotonic_regression', 'beta_calibration', 'temp_scaling', 'platt_scaling', 'equal_freq_binning', 'bbq', 'ensemble_temperature_scaling', 'enir', 'platt_binning']
 
-# without calibration experiments
-# folder_index = 50
-# for labeled_prop in [1.0]:
-#     for lr in [0.1, 0.01, 0.001]:
-#         model = TextClassificationModel(768, 2, initrange=0.2)
-#         folder_name = 'self_training_test' + str(folder_index)
-#         folder_exists = os.path.exists(folder_name)
-#         if not folder_exists:
-#             os.makedirs(folder_name)
-#         main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=False, labeled_percentage=labeled_prop, learning_rate=lr, validation_percentage=0)
-#         folder_index += 1
+    initrange = 0.2
+    model = TextClassificationModel(768, 2, initrange=initrange)
+    models = [model]
+    dataset = 'imdb'
+    labeled_percentages = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
+    validation_percentages = [0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
+    sum_labeled_validation = list(set([x + y for x, y in zip(labeled_percentages, validation_percentages)]))
+    labeled_percentages_no_calibration = list(set(labeled_percentages + sum_labeled_validation))
 
-# with temp scaling experiments
-# folder_index = 80
-# for (labeled_prop, validation_prop) in [(0.0005, 0.0005), (0.0025, 0.0025), (0.005, 0.005), (0.025, 0.025), (0.1, 0.1), (0.25, 0.25), (0.5, 0.5), (0.75, 0.25), (0.375, 0.125), (0.15, 0.05), (0.0375, 0.0125), (0.0075, 0.0025), (0.00075, 0.00025), (0.00375, 0.00125)]:
-#         model = TextClassificationModel(768, 2, initrange=0.2)
-#         folder_name = 'self_training_test' + str(folder_index)
-#         folder_exists = os.path.exists(folder_name)
-#         if not folder_exists:
-#             os.makedirs(folder_name)
-#         main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=True, labeled_percentage=labeled_prop, validation_percentage=validation_prop, learning_rate=lr)
-#         folder_index += 1
+    # binary_classification_datasets = ['imdb', 'sst2', 'airport_tweets', 'yelp_polarity', 'amazon_elec_binary', 'modified_elec_binary']
 
-# model = TextClassificationModel(768, 2)
-# main([model], 
-#      'imdb',
-#      criterion, 
-#      'temp_scaling', 
-#      'self_training_test97', 
-#      load_features=True, 
-#      calibrate=True,
-#      retrain_models_from_scratch=False)
+    # first without calibration
+    for unlabeled_samples_method in adding_unlabeled_samples_methods:
+        for retrain_models_from_scratch_value in [True, False]:
+            for labeled_percentage in labeled_percentages_no_calibration:
+                folder_name = "self_training_imdb_" + unlabeled_samples_method + "_" + str(retrain_models_from_scratch_value) + "_no_calibration_" + str(labeled_percentage)
+                folder_exists = os.path.exists(folder_name)
+                if not folder_exists:
+                    os.makedirs(folder_name)
 
-# model1 = TextClassificationModel(768, 2)
-# main([model1], 
-#      'imdb',
-#      criterion, 
-#      'temp_scaling', 
-#      'self_training_test98', 
-#      load_features=True, 
-#      calibrate=True,
-#      learning_rate=0.001,
-#      retrain_models_from_scratch=False)
-    
-# default to 0.1 for validation_model_prop -> also try w/ same prop as for calibration validation set
-labeled_and_validation_props = [(0.001, 0.001),
-                                (0.001, 0.0005),
-                                (0.001, 0.002),
-                                (0.01, 0.01), 
-                                (0.01, 0.005),
-                                (0.01, 0.02),
-                                (0.05, 0.05),
-                                (0.05, 0.025),
-                                (0.05, 0.1), 
-                                (0.1, 0.1), 
-                                (0.1, 0.05),
-                                (0.1, 0.2),
-                                (0.2, 0.2),
-                                (0.2, 0.1),
-                                (0.2, 0.4), 
-                                (0.25, 0.25),
-                                (0.25, 0.125),
-                                (0.25, 0.5)]
+                    if unlabeled_samples_method == 'k_best_and_threshold':
+                        main(models, dataset, criterion, None, folder_name, load_features=True, calibrate=False, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=True, labeled_percentage=labeled_percentage)
+                    elif unlabeled_samples_method == 'k_best':
+                        main(models, dataset, criterion, None, folder_name, load_features=True, calibrate=False, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=True, k_best_and_threshold=False, labeled_percentage=labeled_percentage)  
+                    else:
+                        main(models, dataset, criterion, None, folder_name, load_features=True, calibrate=False, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=False, labeled_percentage=labeled_percentage)             
 
-# for (labeled_prop, validation_prop) in labeled_and_validation_props:
-#     print(labeled_prop)
-#     print(validation_prop)
-#     for dataset in ['imdb']:
-#         print(dataset)
-#         has_test = True if dataset in ('imdb', 'sst2', 'modified_amazon_elec_binary', 'yelp_polarity', 'amazon_polarity') else False
-
-#         # run once w/ model_validation_prop = 0.1
-#         tune_model(labeled_percentage=labeled_prop, model_validation_percentage=0.1, dataset=dataset, dataset_has_test=has_test, shared_validation=False)
-
-#         # run once w/ model_validation_prop = validation_prop
-#         tune_model(labeled_percentage=labeled_prop, model_validation_percentage=validation_prop, dataset=dataset, dataset_has_test=has_test, shared_validation=True)
-
-
-# without calibration experiments
-folder_index = 99
-labeled_props_no_calibration = [0.002, 0.0015, 0.003, 0.02, 0.015, 0.03, 0.1, 0.075, 0.15, 0.2, 0.3, 0.4, 0.6, 0.5, 0.375, 0.75]
-for labeled_prop in labeled_props_no_calibration:
-    model = TextClassificationModel(768, 2)
-    folder_name = 'self_training_test' + str(folder_index)
-    folder_exists = os.path.exists(folder_name)
-    if not folder_exists:
-        os.makedirs(folder_name)
-    main([model], 'imdb', criterion, 'temp_scaling', folder_name, load_features=True, calibrate=False, labeled_percentage=labeled_prop, learning_rate=lr, validation_percentage=0)
-    folder_index += 1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    # second with all binary classification calibration methods 
+    for unlabeled_samples_method in adding_unlabeled_samples_methods:
+        for retrain_models_from_scratch_value in [True, False]:
+            for calibration_method in binary_classification_calibration_methods:
+                for labeled_percentage in labeled_percentages:
+                    for validation_percentage in validation_percentages:
+                        folder_name = "self_training_imdb_" + unlabeled_samples_method + "_" + str(retrain_models_from_scratch_value) + "_" + calibration_method + "_" + str(labeled_percentage) + "_" + str(validation_percentage) 
+                        folder_exists = os.path.exists(folder_name)
+                        if not folder_exists:
+                            os.makedirs(folder_name)
+                        
+                            if unlabeled_samples_method == 'k_best_and_threshold':
+                                main(models, dataset, criterion, calibration_method, folder_name, load_features=True, calibrate=True, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=True, labeled_percentage=labeled_percentage, validation_percentage=validation_percentage)
+                            elif unlabeled_samples_method == 'k_best':
+                                main(models, dataset, criterion, calibration_method, folder_name, load_features=True, calibrate=True, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=True, k_best_and_threshold=False, labeled_percentage=labeled_percentage, validation_percentage=validation_percentage)  
+                            else:
+                                main(models, dataset, criterion, calibration_method, folder_name, load_features=True, calibrate=True, retrain_models_from_scratch=retrain_models_from_scratch_value, k_best=False, k_best_and_threshold=False, labeled_percentage=labeled_percentage, validation_percentage=validation_percentage)   
 

@@ -547,6 +547,9 @@ class TextDataset(Dataset):
         return self.text
 
 def create_dataset(text, labels, slice_start=None, slice_end=None):
+    '''
+    Create instance of TextDataset given a dataset
+    '''
     if slice_start is None:
         slice_start = 0
     if slice_end is None:
@@ -578,7 +581,7 @@ def split_datasets(train,
 
     original_train_length = len(train[1])
 
-    if balance_classes:
+    if balance_classes: # create train set with equal number of samples for each class
         unique_classes = np.sort(np.unique(np.array(train[1])))
 
         train_labels = np.array(train[1])
@@ -606,10 +609,11 @@ def split_datasets(train,
             index = idx_for_each_class[i]
             next_index = idx_for_each_class[i+1]
 
-            new_train_texts.append(train_texts[index:index+num_per_class])
-            new_train_labels.append(train_labels[index:index+num_per_class])
-            old_train_texts.append(train_texts[index+num_per_class:next_index])
-            old_train_labels.append(train_labels[index+num_per_class:next_index])
+            new_train_texts.extend(train_texts[index:index+num_per_class])
+            new_train_labels.extend(train_labels[index:index+num_per_class])
+            old_train_texts.extend(train_texts[index+num_per_class:next_index])
+            old_train_labels.extend(train_labels[index+num_per_class:next_index])
+
 
         # shuffle
         random.seed(123)
@@ -621,8 +625,8 @@ def split_datasets(train,
         random.shuffle(zipped_old_train)
         old_train_texts, old_train_labels = zip(*zipped_old_train)
 
-        new_train = new_train_texts, new_train_labels 
-        old_train = old_train_texts, old_train_labels
+        new_train = list(new_train_texts), list(new_train_labels) 
+        old_train = list(old_train_texts), list(old_train_labels)
     else:
         new_train_size = int(labeled_proportion * len(train[1]))
         new_train = train[0][:new_train_size], train[1][:new_train_size]
@@ -640,7 +644,7 @@ def split_datasets(train,
         old_train = old_train[0][validation_size:], old_train[1][validation_size:]
     else:
         validation = None
-    
+
     if unlabeled is None:
         new_unlabeled_text = np.array(old_train[0])
     else:
@@ -685,5 +689,3 @@ def get_dataset_from_dataloader(dataloader, device):
         texts = torch.cat(texts).cpu().numpy()
     
     return texts, labels
-
-# load_yahoo_answers_dataset('../')

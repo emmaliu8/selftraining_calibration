@@ -10,9 +10,9 @@ def unlabeled_samples_to_train(models,
                                unlabeled_dataloader,
                                num_classes = 2,
                                calibrate = False, 
-                               validation_dataloader=None, # needed if calibrate = True
+                               validation_dataloader=None, # needed if calibrate = True, for fitting calibration method
                                recalibration_method=None, # needed if calibrate = True
-                               label_smoothing = 'none', 
+                               label_smoothing = 'none', # during fitting of calibration method
                                label_smoothing_alpha = 0.5, # used if label_smoothing = 'alpha'
                                retrain_from_scratch = False,
                                train_dataloader=None, # needed if retrain_from_scratch = True
@@ -24,7 +24,27 @@ def unlabeled_samples_to_train(models,
                                threshold = 0.8, 
                                k = 1000, 
                                diff_between_top_two_classes = 0.3, # parameter for margin method
-                               balance_classes = False):
+                            ):
+    '''
+    Selects unlabeled samples on which the model(s) have high confidence to use as training samples in the next iteration of self-training
+
+    If calibrate = True: uses calibrated probabilities as the confidence scores
+
+    If retrain_from_scratch = True: Training set in next iteration of self-training includes newly added unlabeled samples in addition to the training set from the previous iteration of self-training
+
+    Allowed methods for selecting unlabeled samples:
+    - Margin: margin = True, margin_only = True
+    - K-Best and Threshold with Margin: margin = True, k_best_and_threshold = True, margin_only = False
+    - K-Best and Threshold without Margin: margin = False, k_best_and_threshold = True, margin_only = False
+    - K-Best with Margin: margin = True, k_best = True, margin_only = False, k_best_and_threshold = False
+    - K-Best without Margin: margin = False, k_best = True, margin_only = False, k_best_and_threshold = False
+    - Threshold with Margin: margin = True, k_best = False, margin_only = False, k_best_and_threshold = False
+    - Threshold without Margin: margin = False, k_best = False, margin_only = False, k_best_and_threshold = False
+
+    Margin: Difference between probabilities for the top two classes must be at least the given margin
+    K-Best: Select samples with the k-highest confidence scores
+    Threshold: Selected samples must have confidence higher than given threshold
+    '''
 
     # get predictions on unlabeled set
     aggregate_pre_softmax_probs, aggregate_post_softmax_probs, aggregate_predicted_probs, aggregate_predicted_labels, _, all_unlabeled_inputs = get_model_predictions(unlabeled_dataloader, device, models, use_pre_softmax=False, use_post_softmax=True, unlabeled=True)
@@ -57,13 +77,13 @@ def unlabeled_samples_to_train(models,
     if margin:
         if calibrate:
             sorted_unlabeled_calibrated_probs = np.sort(unlabeled_calibrated_probs, axis=1) # sorted in ascending order 
-            margin = sorted_unlabeled_calibrated_probs[:, -1] - sorted_unlabeled_calibrated_probs[:, -2]
-            df['margin'] = margin            
+            margin_values = sorted_unlabeled_calibrated_probs[:, -1] - sorted_unlabeled_calibrated_probs[:, -2]
+            df['margin'] = margin_values            
             df['margin'] = df['margin'].abs()
         else:
             sorted_unlabeled_probs = np.sort(aggregate_post_softmax_probs, axis=1) # sorted in ascending order 
-            margin = sorted_unlabeled_probs[:, -1] - sorted_unlabeled_calibrated_probs[:, -2]
-            df['margin'] = margin
+            margin_values = sorted_unlabeled_probs[:, -1] - sorted_unlabeled_probs[:, -2]
+            df['margin'] = margin_values
             df['margin'] = df['margin'].abs()
 
     # apply method for choosing unlabeled samples

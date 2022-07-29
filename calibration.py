@@ -10,16 +10,17 @@ from uq360.metrics.classification_metrics import expected_calibration_error
 import model_training
 from netcal_package.binning.BBQ import BBQ
 from netcal_package.binning.ENIR import ENIR 
-# from keras.utils import to_categorical
-# from dirichlet_python.dirichletcal.calib.vectorscaling import VectorScaling1
-# from dirichlet_python.dirichletcal.calib.matrixscaling import MatrixScaling1
-# from dirichlet_python.dirichletcal.calib.fulldirichlet import FullDirichletCalibrator
 
 # for PlattBinnerCalibrator
 Bins = List[float]  # List of bin boundaries, excluding 0.0, but including 1.0. 
 T = TypeVar('T')
 
 def to_categorical(labels, num_classes=None):
+    '''
+    Converts integer labels to one-hot encoding
+
+    labels: numpy array of integer labels (0-indexed)
+    '''
     if num_classes is None:
         num_classes = np.max(labels) + 1 # assumes labels are 0-indexed
     labels_list = list(labels)
@@ -29,6 +30,10 @@ def to_categorical(labels, num_classes=None):
     return result
 
 def plot_calibration_curve(y_true, y_prob, filename, num_bins=10):
+    '''
+    Plots distribution of confidence scores and calibration curve
+    Based on: https://github.com/IBM/UQ360/blob/main/uq360/metrics/classification_metrics.py#L241
+    '''
     if len(y_prob.shape) == 1:
         y_prob = y_prob.reshape(-1, 1)
 
@@ -95,32 +100,7 @@ def _weighted_sum(sample_score, sample_weight, normalize=False):
     else:
         return sample_score.sum()
 
-def temp_log_loss(y_true, y_pred):
-    # y_pred = check_array(y_pred, ensure_2d=False)
-    # check_consistent_length(y_pred, y_true, sample_weight)
-
-    # lb = LabelBinarizer()
-
-    # if labels is not None:
-    #     lb.fit(labels)
-    # else:
-    #     lb.fit(y_true)
-
-    # if len(lb.classes_) == 1:
-    #     if labels is None:
-    #         raise ValueError(
-    #             "y_true contains only one label ({0}). Please "
-    #             "provide the true labels explicitly through the "
-    #             "labels argument.".format(lb.classes_[0])
-    #         )
-    #     else:
-    #         raise ValueError(
-    #             "The labels array needs to contain at least two "
-    #             "labels for log_loss, "
-    #             "got {0}.".format(lb.classes_)
-    #         )
-
-    # transformed_labels = lb.transform(y_true)
+def log_loss(y_true, y_pred):
     transformed_labels = y_true.reshape(-1, 1)
     if transformed_labels.shape[1] == 1 and y_pred.shape[1] == 2:
         transformed_labels = np.append(
@@ -139,26 +119,6 @@ def temp_log_loss(y_true, y_pred):
         y_pred = y_pred[:, np.newaxis]
     if y_pred.shape[1] == 1:
         y_pred = np.append(1 - y_pred, y_pred, axis=1)
-
-    # Check if dimensions are consistent.
-    # transformed_labels = check_array(transformed_labels)
-    # if len(lb.classes_) != y_pred.shape[1]:
-    #     if labels is None:
-    #         raise ValueError(
-    #             "y_true and y_pred contain different number of "
-    #             "classes {0}, {1}. Please provide the true "
-    #             "labels explicitly through the labels argument. "
-    #             "Classes found in "
-    #             "y_true: {2}".format(
-    #                 transformed_labels.shape[1], y_pred.shape[1], lb.classes_
-    #             )
-    #         )
-    #     else:
-    #         raise ValueError(
-    #             "The number of classes in labels is different "
-    #             "from that in y_pred. Classes found in "
-    #             "labels: {0}".format(lb.classes_)
-    #         )
 
     # Renormalize
     y_pred /= y_pred.sum(axis=1)[:, np.newaxis]
@@ -186,7 +146,7 @@ class TemperatureScaling():
     def _loss_fun(self, x, probs, true):
         # Calculates the loss using log-loss (cross-entropy loss)
         scaled_probs = self.predict(probs, x)   
-        loss = temp_log_loss(y_true=true, y_pred=scaled_probs)
+        loss = log_loss(y_true=true, y_pred=scaled_probs)
         return loss
     
     # Find the temperature
@@ -233,7 +193,7 @@ class EnsembleTemperatureScaling():
         ## find optimal weight coefficients with Cros-Entropy loss function
         p = (w[0]*p0+w[1]*p1+w[2]*p2)
         N = p.shape[0]
-        ce = temp_log_loss(label, p)
+        ce = log_loss(label, p)
         return ce
 
     def _fit_ensemble_scaling(self, logits, true, temp, n_class=2):
@@ -391,7 +351,6 @@ class EqualFreqBinning():
         # update self.upper_bounds
         for i in range(len(split_probs)-1):
             self.upper_bounds.append((split_probs[i][-1] + split_probs[i+1][0]) / 2.0)
-            # IndexError: index 0 is out of bounds for axis 0 with size 0
         self.upper_bounds.append(1)
 
         # update self.conf
@@ -505,7 +464,7 @@ class PlattScaling():
     def _loss_fun(self, x, probs, true):
         # Calculates the loss using log-loss (cross-entropy loss)
         scaled_probs = self.predict(probs, x[0], x[1])  
-        loss = temp_log_loss(true, scaled_probs)
+        loss = log_loss(true, scaled_probs)
         return loss
 
     def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
@@ -547,7 +506,7 @@ class VectorScaling():
         a_diags = x[:self.n_classes]
         b = np.reshape(x[self.n_classes:], (self.n_classes, 1))
         scaled_probs = self.predict(probs, a_diags, b)  
-        loss = temp_log_loss(true, scaled_probs)
+        loss = log_loss(true, scaled_probs)
         return loss
 
     def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
@@ -598,7 +557,7 @@ class MatrixScaling():
         a = np.reshape(np.array(x[:self.n_classes*self.n_classes]), (self.n_classes, self.n_classes))
         b = np.reshape(np.array(x[self.n_classes*self.n_classes:]), (self.n_classes, 1))
         scaled_probs = self.predict(probs, a, b)  
-        loss = temp_log_loss(true, scaled_probs)
+        loss = log_loss(true, scaled_probs)
         return loss
 
     def fit(self, logits, true): # optimize w/ NLL loss according to Guo calibration paper
@@ -702,6 +661,9 @@ class PlattBinnerCalibrator():
         return self._discrete_calibrator(platt_probs)
     
 def platt_label_smoothing(labels):
+    '''
+    Implements label smoothing as proposed by Platt (https://en.wikipedia.org/wiki/Platt_scaling)
+    '''
     num_positive = np.count_nonzero(labels == 1)
     num_negative = len(labels) - num_positive
     new_positive_label = 1.0 * (num_positive + 1) / (num_positive + 2)
@@ -709,11 +671,21 @@ def platt_label_smoothing(labels):
     new_labels = np.where(labels == 1, new_positive_label, new_negative_label)
     return new_labels
 
-def alpha_label_smoothing(labels, alpha):
+def alpha_label_smoothing(labels, alpha, for_model_training=False):
+    '''
+    alpha: between 0 and 1, inclusive
+    for_model_training: denotes whether or not the outputted labels are to be used during model training (instead of during fitting calibration)
+    '''
     new_positive_label = (1.0 - alpha) + alpha / 2.0
     new_negative_label = alpha / 2.0
-    new_labels = np.where(labels == 1, new_positive_label, new_negative_label)
-    return new_labels
+    if for_model_training:
+        new_labels = np.zeros((labels.shape[0], 2), dtype=float)
+        new_labels[labels==1][1] = float(new_positive_label) 
+        new_labels[labels==0][0] = float(new_negative_label)
+        return new_labels
+    else:
+        new_labels = np.where(labels == 1, new_positive_label, new_negative_label)
+        return new_labels
 
 def apply_label_smoothing(labels, label_smoothing, alpha = 0.1):
     if label_smoothing == 'none':
@@ -725,14 +697,14 @@ def apply_label_smoothing(labels, label_smoothing, alpha = 0.1):
     else:
         raise ValueError("Invalid method of label smoothing")
 
-def calibrate_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
 
     temperature_scaling = TemperatureScaling()
     temperature_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return temperature_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_histogram_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_histogram_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     _, post_softmax_probs, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
         
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
@@ -745,7 +717,7 @@ def calibrate_histogram_binning(dataloader, device, models, post_softmax_probs_p
 
     return calibrated_probs_by_class
 
-def calibrate_isotonic_regression(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_isotonic_regression(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     _, post_softmax_probs, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
@@ -758,7 +730,7 @@ def calibrate_isotonic_regression(dataloader, device, models, post_softmax_probs
 
     return calibrated_probs_by_class
 
-def calibrate_beta_calibration(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_beta_calibration(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     _, post_softmax_probs, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
@@ -771,14 +743,14 @@ def calibrate_beta_calibration(dataloader, device, models, post_softmax_probs_pr
 
     return calibrated_probs_by_class
 
-def calibrate_platt_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_platt_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     platt_scaling = PlattScaling()
     platt_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return platt_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_equal_freq_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_equal_freq_binning(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     _, post_softmax_probs, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
@@ -791,7 +763,7 @@ def calibrate_equal_freq_binning(dataloader, device, models, post_softmax_probs_
 
     return calibrated_probs_by_class
 
-def calibrate_bbq(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_bbq(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     _, post_softmax_probs, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
@@ -804,14 +776,14 @@ def calibrate_bbq(dataloader, device, models, post_softmax_probs_predict, label_
 
     return calibrated_probs_by_class
 
-def calibrate_ensemble_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_ensemble_temperature_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     ensemble_temperature_scaling = EnsembleTemperatureScaling()
     ensemble_temperature_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return ensemble_temperature_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_enir(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_enir(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     _, post_softmax_probs, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
@@ -828,7 +800,7 @@ def calibrate_enir(dataloader, device, models, post_softmax_probs_predict, label
 
     return calibrated_probs_by_class
 
-def calibrate_platt_binner(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None):
+def calibrate_platt_binner(dataloader, device, models, post_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1):
     _, post_softmax_probs, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models)
 
     calibrated_probs_by_class = np.zeros(post_softmax_probs_predict.shape)
@@ -841,24 +813,19 @@ def calibrate_platt_binner(dataloader, device, models, post_softmax_probs_predic
 
     return calibrated_probs_by_class
 
-def calibrate_vector_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
+def calibrate_vector_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1, num_classes=4):
     pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
 
     vector_scaling = VectorScaling(num_classes)
     vector_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return vector_scaling.predict(pre_softmax_probs_predict)
 
-def calibrate_matrix_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
+def calibrate_matrix_scaling(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=0.1, num_classes=4):
     pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
 
     matrix_scaling = MatrixScaling(num_classes)
     matrix_scaling.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
     return matrix_scaling.predict(pre_softmax_probs_predict)
 
-# def calibrate_full_dirichlet(dataloader, device, models, pre_softmax_probs_predict, label_smoothing='none', label_smoothing_alpha=None, num_classes=2):
-#     pre_softmax_probs, _, _, _, true_labels, _ = model_training.get_model_predictions(dataloader, device, models, use_post_softmax=True)
 
-#     full_dirichlet = FullDirichletCalibrator()
-#     full_dirichlet.fit(pre_softmax_probs, apply_label_smoothing(true_labels, label_smoothing, label_smoothing_alpha))
-#     return full_dirichlet.predict(pre_softmax_probs_predict)
 

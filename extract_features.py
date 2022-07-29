@@ -10,6 +10,9 @@ def remove_br_tags(text):
     return text.replace("<br /><br />", " ")
 
 def tokenize_and_features(text, device):
+    '''
+    Convert text (list of strings) into features
+    '''
     # assumes text is a list of samples
     text = [remove_br_tags(element) for element in text]
     bert_tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased')
@@ -29,7 +32,13 @@ def tokenize_and_features(text, device):
     features = outputs[0][:, 0, :].cpu().numpy()
     return features
 
-def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_name = None):
+def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_name = None, start_index=0):
+    '''
+    Create version of dataset with text converted to features
+    Saves dataset to files in batches of 100000
+
+    start_index used if part of the dataset has already been featurized, should be set to the index of the last saved file
+    '''
     text_dataloader = DataLoader(dataset, batch_size=batch_size)
     features = None
     all_features = None
@@ -41,7 +50,7 @@ def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_nam
         batch_labels = batch['Class']
         labels.extend(batch_labels)
 
-        if index > 0:
+        if index > start_index:
             new_features = tokenize_and_features(batch['Text'], device)
 
             if features is None:
@@ -54,7 +63,9 @@ def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_nam
             else:
                 all_features = np.concatenate((all_features, new_features), axis=0)
         else:
-            if not added:
+            if not added: 
+                # loads previously featurized samples from dataset
+                # assumes loaded features were created with featurize_dataset
                 new_features = torch.load(dataset_name + '_' + str(index) + '_features_' + file_name)
                 features = new_features
 
@@ -81,8 +92,13 @@ def featurize_dataset(dataset, device, batch_size, dataset_name = None, file_nam
     return all_features, dataset.get_labels()
 
 def combine_dataset_files(dataset, split, file_path):
-    # format of features filename is dataset_index_features_split_data.pt
-    # format of labels filename is dataset_index_labels_split_data.pt
+    '''
+    Combines dataset that has been featurized and saved to files (from featurize_dataset)
+
+    split: 'train', 'test', 'validation', or 'unlabeled'
+    '''
+    # format of features filename is {dataset}_{index}_features_{split}_data.pt
+    # format of labels filename is {dataset}_{index}_labels_{split}_data.pt
 
     largest_index = 1
     for fname in sorted(os.listdir(file_path)):

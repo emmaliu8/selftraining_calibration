@@ -6,7 +6,12 @@ from extract_features import featurize_dataset
 
 batch_size = 256
 
+# script to convert text in datasets to features and save to files
+
 def main(dataset):
+    '''
+    dataset can be any key from dataset_name_to_load_func
+    '''
 
     # reproducible
     torch.manual_seed(0)
@@ -16,7 +21,7 @@ def main(dataset):
 
     dataset_name_to_load_func = {'imdb': load_imdb_dataset, 'sst2': load_sst2_dataset, 'sst5': load_sst5_dataset, 'amazon_elec': load_amazon_elec_dataset, 'amazon_elec_binary': load_amazon_elec_binary_dataset, 'dbpedia': load_dbpedia_dataset, 'ag_news': load_ag_news_dataset, 'yelp_full': load_yelp_full_dataset, 'yelp_polarity': load_yelp_polarity_dataset, 'amazon_full': load_amazon_full_dataset, 'amazon_polarity': load_amazon_polarity_dataset, 'yahoo': load_yahoo_answers_dataset, 'twenty_news': load_twenty_news_dataset, 'airport_tweets': load_airport_tweets_dataset}
 
-    data = dataset_name_to_load_func[dataset]('../')
+    data = dataset_name_to_load_func[dataset]('../') 
 
     # split data into train, unlabeled, test
     if len(data) == 1:
@@ -47,5 +52,5 @@ def main(dataset):
     if unlabeled is not None:
         unlabeled = featurize_dataset(unlabeled_dataset, device, batch_size, dataset, 'unlabeled_data.pt')
 
-print('amazon_full')
-main('amazon_full')
+# print('amazon_full')
+# main('amazon_full')
